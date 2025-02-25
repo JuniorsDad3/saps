@@ -1,0 +1,17 @@
+Flask==2.3.2
+Flask-SQLAlchemy==3.0.0
+Flask-Mailman
+Flask-Uploads==0.2.1
+azure-storage-blob==12.17.0
+pyodbc==5.0.1
+SpeechRecognition==3.8.1
+python-dotenv==1.0.0
+requests==2.31.0
+gunicorn
+Flask_WTF
+flask-login
+gunicorn
+python-dotenv
+requests
+flask-migrate
+flask-bcrypt

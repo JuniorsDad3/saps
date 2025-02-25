@@ -1,0 +1,327 @@
+https://remittancevault.vault.azure.net/
+remittanceserver.database.windows.net
+Driver={ODBC Driver 18 for SQL Server};Server=tcp:remittanceserver.database.windows.net,1433;Database=RemittanceApp;Uid=remittanceserver;Pwd={your_password_here};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;
+
+
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+
+pip install flask googletrans speechrecognition
+
+
+python app.py
+
+
+
+
+
+
+from flask import Flask, render_template, request, jsonify, redirect, flash
+from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail, Message
+from azure.storage.blob import BlobServiceClient
+import azure.cognitiveservices.speech as speechsdk
+from dotenv import load_dotenv
+import os
+import uuid
+from datetime import datetime
+import pyodbc
+import logging
+from sqlalchemy import create_engine
+from googletrans import Translator
+import speech_recognition as sr
+from werkzeug.utils import secure_filename
+
+# Logging configuration
+logging.basicConfig()
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+# Load environment variables
+load_dotenv()
+
+# Flask app setup
+app = Flask(__name__)
+
+# Secure configurations
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-default-secret-key')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///cases.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+def init_db()
+
+# File upload configuration
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'mp4', 'mp3', 'wav', 'pdf', 'doc', 'docx'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+# Initialize tools
+db = SQLAlchemy(app)
+mail = Mail(app)
+translator = Translator()
+recognizer = sr.Recognizer()
+
+# Mail Configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+
+# Azure Blob Storage Configuration
+AZURE_BLOB_CONNECTION_STRING = os.getenv('AZURE_BLOB_CONNECTION_STRING')
+BLOB_CONTAINER_NAME = os.getenv('BLOB_CONTAINER_NAME', 'uploads')
+
+# Azure Cognitive Services Configuration
+AZURE_SPEECH_KEY = os.getenv('AZURE_SPEECH_KEY')
+AZURE_REGION = os.getenv('AZURE_REGION')
+
+# Helper functions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def generate_reference_number():
+    return str(uuid.uuid4()).split('-')[0]
+
+def upload_to_blob(file_path, file_name):
+    try:
+        blob_service = BlobServiceClient.from_connection_string(AZURE_BLOB_CONNECTION_STRING)
+        blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=file_name)
+        with open(file_path, "rb") as data:
+            blob_client.upload_blob(data, overwrite=True)
+        return blob_client.url
+    except Exception as e:
+        return f"Error uploading to blob: {e}"
+
+def voice_to_text(file_path):
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_REGION)
+        audio_input = speechsdk.AudioConfig(filename=file_path)
+        speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
+
+        result = speech_recognizer.recognize_once()
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            return result.text
+        elif result.reason == speechsdk.ResultReason.NoMatch:
+            return "No speech recognized"
+        else:
+            return f"Speech recognition failed: {result.reason}"
+    except Exception as e:
+        return f"Error in voice-to-text conversion: {e}"
+
+# Routes
+@app.route('/')
+def index():
+    return render_template('frontendcode.html')
+
+@app.route('/submit_case', methods=['POST'])
+def submit_case():
+    data = request.form.to_dict()
+    response = {}
+
+    # Handle text fields
+    name = data.get('name')
+    surname = data.get('surname')
+    id_number = data.get('id_number')
+    cellphone = data.get('cellphone')
+    email = data.get('email')
+    address = data.get('address')
+    date_time = data.get('date_time')
+    crime_type = data.get('crime_type')
+    description = data.get('description', '')
+
+    # Generate reference number
+    reference_number = generate_reference_number()
+    response['reference_number'] = reference_number
+
+    # Handle language translation
+    language = data.get('language', 'en')
+    translated_description = translator.translate(description, src='en', dest=language).text
+    response['translated_description'] = translated_description
+
+    # Handle voice note
+    if 'voice_note' in request.files:
+        voice_note = request.files['voice_note']
+        if voice_note and allowed_file(voice_note.filename):
+            filename = secure_filename(voice_note.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            voice_note.save(filepath)
+            transcribed_text = voice_to_text(filepath)
+            response['voice_transcription'] = translator.translate(transcribed_text, src='en', dest=language).text
+
+    # Handle media uploads
+    uploaded_files = []
+    for file_key in ['image', 'video', 'document']:
+        if file_key in request.files:
+            file = request.files[file_key]
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                uploaded_files.append(filepath)
+    response['uploaded_files'] = uploaded_files
+
+    # Save case details (example: save to a file for now)
+    case_log = {
+        'reference_number': reference_number,
+        'name': name,
+        'surname': surname,
+        'id_number': id_number,
+        'cellphone': cellphone,
+        'email': email,
+        'address': address,
+        'date_time': date_time,
+        'crime_type': crime_type,
+        'description': description,
+        'translated_description': translated_description,
+        'uploaded_files': uploaded_files,
+        'timestamp': datetime.now().isoformat()
+    }
+
+    with open('cases.log', 'a') as log_file:
+        log_file.write(str(case_log) + '\n')
+
+    return jsonify(response)
+
+@app.route('/certify_document', methods=['POST'])
+def certify_document():
+    if 'document' not in request.files:
+        return jsonify({'error': 'No document uploaded'}), 400
+
+    document = request.files['document']
+    if document and allowed_file(document.filename):
+        filename = secure_filename(document.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        document.save(filepath)
+
+        # Simulate digital certification
+        certified_filename = f"certified_{filename}"
+        certified_filepath = os.path.join(app.config['UPLOAD_FOLDER'], certified_filename)
+        os.rename(filepath, certified_filepath)
+
+        return jsonify({'certified_document': certified_filename})
+
+    return jsonify({'error': 'Invalid file type'}), 400
+
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    lang = request.args.get('lang', 'english')  # Default to English
+    language_data = TRANSLATIONS.get(lang, TRANSLATIONS['english'])
+    return render_template("frontendcode.html", language_data=language_data)
+
+# Configuration
+UPLOADS_FOLDER = os.getenv("UPLOADS_FOLDER", "uploads")
+os.makedirs(UPLOADS_FOLDER, exist_ok=True)
+app.config["UPLOADS_FOLDER"] = UPLOADS_FOLDER
+
+# List of crime types
+CRIME_TYPES = [
+    "Theft", "Assault", "GBV", "Burglary", "Fraud", "Carjacking",
+    "Drug-Related Crime", "Murder", "Vandalism", "Cybercrime",
+    "Human Trafficking", "Kidnapping", "Extortion", "Harassment",
+    "Identity Theft", "Public Disturbance", "Environmental Crime",
+    "Arson", "Illegal Wildlife Trade", "Armed Robbery", "Bribery",
+]
+
+@app.route('/')
+def home():
+    """
+    Serve the main frontend page.
+    """
+    contact_details = {
+        "hotline": "0800 123 456",
+        "email": "contact@saps.gov.za",
+        "emergency": "10111",
+    }
+    return render_template(
+        "frontendcode.html",
+        crime_types=CRIME_TYPES,
+        contact_details=contact_details,
+    )
+
+@app.route('/log-case', methods=['POST'])
+def log_case():
+    """
+    Handle case logging.
+    """
+    try:
+        # Extract form data
+        name = request.form.get("name")
+        surname = request.form.get("surname")
+        id_number = request.form.get("idNumber")
+        cell_number = request.form.get("cellNumber")
+        email = request.form.get("email")
+        address = request.form.get("address")
+        incident_type = request.form.get("incidentType")
+        incident_date_time = request.form.get("incidentDateTime")
+        incident_description = request.form.get("incidentDescription")
+
+        # Save uploaded files
+        voice_note = request.files.get("voiceNote")
+        images = request.files.getlist("images")
+        videos = request.files.getlist("videos")
+
+        # Save files to uploads folder
+        if voice_note:
+            voice_note.save(os.path.join(app.config["UPLOADS_FOLDER"], voice_note.filename))
+        for image in images:
+            image.save(os.path.join(app.config["UPLOADS_FOLDER"], image.filename))
+        for video in videos:
+            video.save(os.path.join(app.config["UPLOADS_FOLDER"], video.filename))
+
+        # Simulate saving data (e.g., database or logging)
+        case_data = {
+            "name": name,
+            "surname": surname,
+            "id_number": id_number,
+            "cell_number": cell_number,
+            "email": email,
+            "address": address,
+            "incident_type": incident_type,
+            "incident_date_time": incident_date_time,
+            "incident_description": incident_description,
+            "files": {
+                "voice_note": voice_note.filename if voice_note else None,
+                "images": [image.filename for image in images],
+                "videos": [video.filename for video in videos],
+            },
+        }
+        print(f"Case logged: {case_data}")
+
+        return jsonify({"message": "Case logged successfully!", "data": case_data}), 200
+
+    except Exception as e:
+        print(f"Error logging case: {e}")
+        return jsonify({"error": "An error occurred while logging the case."}), 500
+
+@app.route('/tip-off', methods=['POST'])
+def tip_off():
+    """
+    Handle anonymous tip-offs.
+    """
+    try:
+        tipoff_details = request.form.get("tipoff_details")
+        timestamp = datetime.datetime.now().isoformat()
+
+        # Simulate saving tip-off (e.g., database or log)
+        print(f"Tip-off received at {timestamp}: {tipoff_details}")
+
+        return jsonify({"message": "Tip-off submitted successfully!"}), 200
+
+    except Exception as e:
+        print(f"Error submitting tip-off: {e}")
+        return jsonify({"error": "An error occurred while submitting the tip-off."}), 500
+
+# Initialize the database
+@app.before_first_request
+def init_db():
+    with app.app_context():
+        db.create_all()
+
+# Main entry point
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)

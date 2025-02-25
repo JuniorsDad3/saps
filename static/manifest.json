@@ -1,0 +1,20 @@
+{
+  "name": "SAPS Digital Services",
+  "short_name": "SAPS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#004ba0",
+  "theme_color": "#004ba0",
+  "icons": [
+    {
+      "src": "icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

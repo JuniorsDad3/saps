@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAPS Digital Services</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .header {
+            background-color: #004ba0;
+            color: white;
+            padding: 20px;
+        }
+        .footer {
+            background-color: #004ba0;
+            color: white;
+            text-align: center;
+            padding: 10px 0;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header text-center">
+        <h1>SAPS Digital Services</h1>
+        <p>“Serving with Integrity and Commitment”</p>
+    </div>
+
+    <div class="container my-5">
+        <!-- Contact Information -->
+        <div class="alert alert-info text-center">
+            <strong>Contact SAPS:</strong> 10111 | <strong>Email:</strong> support@saps.gov.za | 
+            <strong>Crime Stop Hotline:</strong> 08600 10111
+        </div>
+
+        <!-- Language Selection -->
+        <div class="mb-4">
+            <label for="language" class="form-label">Choose Language:</label>
+            <select id="language" class="form-select" onchange="changeLanguage()">
+                <option value="english">English</option>
+                <option value="afrikaans">Afrikaans</option>
+                <option value="zulu">Zulu</option>
+                <option value="xhosa">Xhosa</option>
+                <option value="sotho">Sotho</option>
+                <option value="tswana">Tswana</option>
+                <option value="venda">Venda</option>
+                <option value="tsonga">Tsonga</option>
+                <option value="swazi">Swazi</option>
+                <option value="ndebele">Ndebele</option>
+                <option value="northern_sotho">Northern Sotho</option>
+            </select>
+        </div>
+
+        <!-- Additional Services -->
+        <h2 class="mt-5">Additional Services</h2>
+        <form id="certificationForm" method="POST" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label for="documentType" class="form-label">Select Document Type:</label>
+                <select id="documentType" class="form-select" required>
+                    <option value="">Choose...</option>
+                    <option value="id">ID</option>
+                    <option value="police_clearance">Police Clearance</option>
+                    <option value="marriage_certificate">Marriage Certificate</option>
+                    <option value="lawyer_related">Lawyer-Related Documents</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="documentUpload" class="form-label">Upload Document:</label>
+                <input type="file" class="form-control" id="documentUpload" name="documentUpload" required>
+            </div>
+
+            <div class="mb-3">
+                <label for="digitalSignature" class="form-label">Upload Digital Signature:</label>
+                <input type="file" class="form-control" id="digitalSignature" name="digitalSignature" accept=".png, .jpg" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Generate Document</button>
+        </form>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2025 SAPS Digital Services. All Rights Reserved.</p>
+    </div>
+
+    <script>
+        function changeLanguage() {
+            const language = document.getElementById("language").value;
+            alert(`Language switched to: ${language}`);
+            // Additional logic to dynamically load content in the selected language can be added here.
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

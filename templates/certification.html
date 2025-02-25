@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="{{ g.get('language', 'en') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S.A.P.S Digital Services</title>
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet"> <!-- Optional Custom Styles -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css" />
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .header {
+            background-color: #004ba0;
+            color: white;
+            padding: 20px;
+            position: relative;
+            text-align: center;
+        }
+        .header img {
+            height: 60px;
+            position: absolute;
+            top: 10px;
+        }
+        .header .left-img {
+            left: 10px;
+        }
+        .header .right-img {
+            right: 10px;
+        }
+        .footer {
+            background-color: #004ba0;
+            color: white;
+            text-align: center;
+            padding: 10px 0;
+            margin-top: 20px;
+        }
+        #map { height: 200px; width: 100%; margin-bottom: 20px; } /* Smaller map */
+        .form-label { font-weight: bold; }
+        .alert { margin-top: 20px; text-align: center; } /* Center alert text */
+        .audio-recorder { margin-bottom: 20px; }
+        .audio-recorder button { margin-right: 10px; }
+        .case-description { margin-bottom: 20px; }
+        .additional-services { margin-top: 40px; text-align: center; } /* Center additional services */
+        .form-group { margin-bottom: 15px; }
+        .form-control { width: 100%; }
+        .language-selector { margin-bottom: 20px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <img src="{{ url_for('static', filename='download.png') }}" alt="Left Logo" class="left-img">
+        <h1>SAPS Digital Services</h1>
+        <img src="{{ url_for('static', filename='download.png') }}" alt="Right Logo" class="right-img">
+        <p>“Serving with Integrity and Commitment”</p>
+    </div>
+
+    <div class="container my-5">
+        <div class="alert alert-info">
+            <strong>Contact SAPS:</strong> 10111 | <strong>Email:</strong> support@saps.gov.za |
+            <strong>Crime Stop Hotline:</strong> 08600 10111
+        </div>
+            
+        <!-- Additional Services Section -->
+        <div class="additional-services">
+            <h2>Additional Services</h2>
+            <form id="certificationForm" action="/certify-document" method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="documentType" class="form-label">Document Type</label>
+                    <select id="documentType" class="form-control" name="documentType" required>
+                        <option value="">Select Document Type</option>
+                        <option value="affidavit">Affidavit</option>
+                        <option value="id_copy">ID Copy</option>
+                        <option value="proof_of_residence">Proof of Residence</option>
+                        <option value="police_report">Police Report</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="documentFile" class="form-label">Upload Document</label>
+                    <input type="file" class="form-control" id="documentFile" name="documentFile" accept=".png,.jpg,.jpeg,.pdf" required>
+                </div>
+                <button type="submit" class="btn btn-warning">Get Certified</button>
+                <a id="downloadLink" style="display: none;" class="btn btn-success">Download Certified Document</a>
+                <button type="button" id="emailDocument" class="btn btn-info" style="display: none;">Email Certified Document</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2025 SAPS. All rights reserved.</p>
+    </div>
+
+    <!-- JavaScript Files -->
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+    <script>
+
+
+    <script>
+        // Form Validation
+        document.getElementById('certificationForm').addEventListener('submit', function(e) {
+            const cellNumber = document.querySelector('[name="cellNumber"]').value;
+            if (!/^\d{10}$/.test(cellNumber)) {
+                alert('Cell Number must be 10 digits');
+                e.preventDefault();
+            }
+        });
+
+        // Voice Recording and Speech-to-Text Conversion
+        const recordBtn = document.getElementById('recordBtn');
+        const recordStatus = document.getElementById('recordStatus');
+        const certificationDescription = document.getElementById('certificationDescription');
+        let recognition;
+        let isRecording = false;
+
+        if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.lang = 'en-US';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onstart = function() {
+                isRecording = true;
+                recordStatus.innerText = "Recording...";
+                recordBtn.classList.add("btn-warning");
+            };
+
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                certificationDescription.value += transcript + " ";
+            };
+
+            recognition.onend = function() {
+                isRecording = false;
+                recordStatus.innerText = "Recording Stopped";
+                recordBtn.classList.remove("btn-warning");
+            };
+
+            recordBtn.addEventListener("click", function() {
+                if (isRecording) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            });
+        } else {
+            recordBtn.disabled = true;
+            recordBtn.innerText = "Voice Recording Not Supported";
+        }
+    </script>
+
+</body>
+</html>

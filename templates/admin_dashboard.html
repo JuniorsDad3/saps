@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard | SAPS Digital Services</title>
+  <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <style>
+    body { background-color: #f8f9fa; }
+    .header {
+      background-color: #004ba0;
+      color: white;
+      padding: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+    }
+    .header img { height: 60px; }
+    .header h1 { flex-grow: 1; text-align: center; margin: 0; }
+    .navbar-custom { display: flex; align-items: center; }
+    .navbar-custom .nav-link { color: white; margin-right: 15px; }
+    .dashboard-container { margin: 20px auto; max-width: 95%; }
+    .card { margin-bottom: 20px; }
+    .search-box { margin-bottom: 10px; }
+    .charts { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }
+    .charts canvas { width: 300px !important; height: 300px !important; }
+    .quick-actions { display: flex; justify-content: space-between; margin-bottom: 20px; }
+    .quick-actions .btn { flex-grow: 1; margin: 5px; }
+    .live-clock { font-size: 14px; font-weight: bold; text-align: right; color: white; }
+  </style>
+</head>
+<body>
+  <!-- Header with Navbar -->
+  <div class="header">
+    <img src="{{ url_for('static', filename='favicon.png') }}" alt="Left Logo" class="left-img">
+    <h1>SAPS Digital Services</h1>
+    <div class="navbar-custom">
+      <span class="live-clock" id="liveClock"></span>
+      <nav>
+        <!-- Navigation links: update these if your route names differ -->
+        <a class="nav-link" href="{{ url_for('submit_case') }}" aria-label="Submit a new case">Submit a Case</a>
+        <a class="nav-link" href="{{ url_for('certification') }}">Certified Docs</a>
+        <a class="nav-link text-danger" href="{{ url_for('logout') }}">Logout</a>
+      </nav>
+    </div>
+    <img src="{{ url_for('static', filename='favicon.png') }}" alt="Right Logo" class="right-img">
+  </div>
+
+  <div class="container dashboard-container">
+    <!-- Display flash messages if any -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="alert alert-info">
+          {% for category, message in messages %}
+            <p>{{ message }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Welcome message using user's username -->
+    <h2>Welcome, {{ current_user.username }}</h2>
+
+    <!-- Quick Actions Section -->
+    <div class="quick-actions">
+      <a href="{{ url_for('submit_case') }}" class="btn btn-primary">📄 Submit a Case</a>
+      <!-- If you have a route for viewing certified documents, update accordingly -->
+      <a href="{{ url_for('certification') }}" class="btn btn-success">📜 Certified Docs</a>
+      <!-- If you have notifications implemented, include the link; otherwise, remove it -->
+      <!-- <a href="{{ url_for('certification') }}" class="btn btn-warning">🔔 Notifications</a> -->
+    </div>
+
+    <!-- User Profile Card -->
+    <div class="card">
+      <div class="card-header bg-primary text-white">Your Profile</div>
+      <div class="card-body">
+        <p><strong>Name:</strong> {{ user.username }}</p>
+        <p><strong>Email:</strong> {{ user.email }}</p>
+        {% if user.role %}
+          <p><strong>Role:</strong> {{ user.role }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Search Box -->
+    <input type="text" id="searchInput" class="form-control search-box" placeholder="Search cases or documents..." onkeyup="searchItems()">
+
+    <!-- Certified Documents Table -->
+    <h3>📄 Certified Documents</h3>
+    <table class="table table-bordered">
+      <thead>
+        <tr>
+          <th>Document ID</th>
+          <th>User Name</th>
+          <th>Document Type</th>
+          <th>Certification Date</th>
+          <th>Download</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in certified_documents %}
+        <tr>
+          <td>{{ doc.id }}</td>
+          <td>{{ doc.user_name }}</td>
+          <td>{{ doc.document_type }}</td>
+          <td>{{ doc.certification_date }}</td>
+          <td>
+            <a href="{{ url_for('certification_download', filename=doc.filename) }}" class="btn btn-sm btn-success" download>
+              📥 Download
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Logged Cases Table -->
+    <h3>📝 Logged Cases</h3>
+    <table class="table table-bordered">
+      <thead>
+        <tr>
+          <th>Case Ref #</th>
+          <th>Status</th>
+          <th>Date Logged</th>
+          <th>Image</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for case in cases %}
+        <tr>
+          <td>{{ case.case_number }}</td>
+          <td>{{ case.status }}</td>
+          <td>{{ case.submitted_at }}</td>
+          <td>
+            {% if case.picture %}
+              <img src="{{ get_image(case) }}" alt="Case Image" width="100" loading="lazy">
+            {% else %}
+              No Image
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Crime Stats Charts -->
+  <div class="charts">
+    <canvas id="crimeTypeChart"></canvas>
+    <canvas id="crimeLocationChart"></canvas>
+  </div>
+
+  <div class="footer">
+    <p>&copy; 2025 SAPS Digital Services</p>
+  </div>
+
+  <script>
+    // Live Clock
+    function updateClock() {
+      const now = new Date();
+      document.getElementById("liveClock").innerText = now.toLocaleString();
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Search Function (if your table rows have proper selectors)
+    function searchItems() {
+      const input = document.getElementById("searchInput").value.toLowerCase();
+      const rows = document.querySelectorAll("table tbody tr");
+      rows.forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(input) ? "" : "none";
+      });
+    }
+
+    // Crime Charts
+    const crimeTypeData = {
+      labels: ['Theft', 'Burglary', 'Assault', 'Fraud', 'GBV'],
+      datasets: [{
+        label: 'Crime Types',
+        data: [12, 19, 3, 5, 2],
+        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+      }]
+    };
+
+    const crimeLocationData = {
+      labels: ['Gauteng', 'Western Cape', 'Eastern Cape', 'Limpopo'],
+      datasets: [{
+        label: 'Crime Locations',
+        data: [10, 20, 30, 40],
+        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0']
+      }]
+    };
+
+    const crimeTrendData = {
+      labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+      datasets: [{
+        label: 'Crime Reports',
+        data: [15, 12, 18, 10, 14, 9],
+        backgroundColor: '#FF6384',
+        fill: false
+      }]
+    };
+
+    new Chart(document.getElementById('crimeTypeChart'), { type: 'doughnut', data: crimeTypeData });
+    new Chart(document.getElementById('crimeLocationChart'), { type: 'bar', data: crimeLocationData });
+    new Chart(document.getElementById('crimeTrendChart'), { type: 'line', data: crimeTrendData });
+  </script>
+  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>

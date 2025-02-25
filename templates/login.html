@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | SAPS Digital Services</title>
+  <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css" />
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .header {
+      background-color: #004ba0;
+      color: white;
+      padding: 20px;
+      text-align: center;
+      position: relative;
+    }
+    .header img {
+      height: 60px;
+      position: absolute;
+      top: 10px;
+    }
+    .header .left-img {
+      left: 10px;
+    }
+    .header .right-img {
+      right: 10px;
+    }
+    .footer {
+      background-color: #004ba0;
+      color: white;
+      text-align: center;
+      padding: 10px 0;
+      margin-top: 20px;
+    }
+    .login-container {
+      max-width: 500px;
+      margin: 50px auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <img src="{{ url_for('static', filename='favicon.png') }}" alt="Left Logo" class="left-img">
+    <h1>SAPS Digital Services</h1>
+    <img src="{{ url_for('static', filename='favicon.png') }}" alt="Right Logo" class="right-img">
+    <p>“Serving with Integrity and Commitment”</p>
+  </div>
+
+  <div class="container">
+    <div class="login-container">
+      <h2 class="text-center">Login</h2>
+      <!-- Flash messages for errors or confirmations -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="alert alert-info">
+            {% for category, message in messages %}
+              <p>{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      <form method="POST" action="{{ url_for('login') }}">
+        <div class="mb-3">
+          <label for="email" class="form-label">Email Address</label>
+          <input type="email" class="form-control" id="email" name="email" placeholder="Enter email" required>
+        </div>
+        <div class="mb-3">
+          <label for="password" class="form-label">Password</label>
+          <input type="password" class="form-control" id="password" name="password" placeholder="Enter password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Login</button>
+      </form>
+      <p class="mt-3">Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>&copy; 2025 SAPS Digital Services</p>
+  </div>
+
+</body>
+</html>

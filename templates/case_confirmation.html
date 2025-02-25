@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard | SAPS Digital Services</title>
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .header {
+            background-color: #004ba0;
+            color: white;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+        }
+        .header img {
+            height: 60px;
+        }
+        .header h1 {
+            flex-grow: 1;
+            text-align: center;
+            margin: 0;
+        }
+        .navbar-custom {
+            display: flex;
+            align-items: center;
+        }
+        .navbar-custom .nav-link {
+            color: white;
+            margin-right: 15px;
+        }
+        .dashboard-container {
+            margin: 20px auto;
+            max-width: 95%;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        .search-box {
+            margin-bottom: 10px;
+        }
+        .charts {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+        }
+        .charts canvas {
+            width: 300px !important;
+            height: 300px !important;
+        }
+        .quick-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .quick-actions .btn {
+            flex-grow: 1;
+            margin: 5px;
+        }
+        .live-clock {
+            font-size: 14px;
+            font-weight: bold;
+            text-align: right;
+            color: white;
+        }
+        #map { height: 200px; width: 100%; margin-bottom: 20px; } /* Smaller map */
+        .form-label { font-weight: bold; }
+        .alert { margin-top: 20px; text-align: center; } /* Center alert text */
+        .audio-recorder { margin-bottom: 20px; }
+        .audio-recorder button { margin-right: 10px; }
+        .case-description { margin-bottom: 20px; }
+        .additional-services { margin-top: 40px; text-align: center; } /* Center additional services */
+        .form-group { margin-bottom: 15px; }
+        .form-control { width: 100%; }
+        .language-selector { margin-bottom: 20px; text-align: center; }
+    </style>
+</head>
+<body>
+
+
+    <div class="header">
+        <img src="{{ url_for('static', filename='download.png') }}" alt="Left Logo" class="left-img">
+        <h1>SAPS Digital Services</h1>
+        <img src="{{ url_for('static', filename='download.png') }}" alt="Right Logo" class="right-img">
+        <p>“Serving with Integrity and Commitment”</p>
+    </div>
+
+    <div class="container my-5">
+        <h1 class="text-center">Case Submission Successful</h1>
+        <p class="text-center">Your case reference number is: {{ case_reference }}</p>
+        <p class="text-center">You will receive a confirmation email shortly.</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary btn-block">Back to Home</a>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2025 SAPS. All rights reserved.</p>
+    </div>
+
+    <!-- JS Files -->
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>

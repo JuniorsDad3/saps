@@ -1,0 +1,1431 @@
+from flask import Flask, render_template, request, jsonify, redirect, session, g
+from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail, Message
+from azure.storage.blob import BlobServiceClient
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from flask_babel import Babel
+import azure.cognitiveservices.speech as speechsdk
+from dotenv import load_dotenv
+import os
+import uuid
+from datetime import datetime
+import logging
+from sqlalchemy import create_engine
+from googletrans import Translator
+import speech_recognition as sr
+from werkzeug.utils import secure_filename
+from PyPDF2 import PdfWriter, PdfReader
+from io import BytesIO
+from translations import get_translation
+
+# Logging configuration
+logging.basicConfig()
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+# Load environment variables
+load_dotenv()
+
+# Flask app setup
+app = Flask(__name__)
+
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['SIGNATURE_FILE'] = 'static/signature.png'  # Default location for signature
+app.config['DOWNLOAD_FOLDER'] = 'static/downloads'
+
+# Configuration for file uploads
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Ensure the upload folder exists
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+DOWNLOAD_FOLDER = os.path.join(app.static_folder, 'downloads')
+
+# Babel for multilingual support
+app.config['BABEL_DEFAULT_LOCALE'] = 'en'
+app.config['BABEL_TRANSLATION_DIRECTORIES'] = 'translations'
+# Initialize Babel
+babel = Babel(app)
+
+# Supported languages
+LANGUAGES= ['en', 'af', 'zu', 'xh', 'st', 'ts', 'ss', 'tn', 've', 'nr', 'nso']
+translations = {
+    'en': 'English',         # isiNgesi
+    'af': 'Afrikaans',       # Afrikaans
+    'zu': 'Zulu',            # isiZulu
+    'xh': 'Xhosa',           # isiXhosa
+    'st': 'Sotho',           # Sesotho
+    'ts': 'Tsonga',          # Xitsonga
+    'ss': 'Swati',           # siSwati
+    'tn': 'Tswana',          # Setswana
+    've': 'Venda',           # Tshivenda
+    'nr': 'Ndebele',         # isiNdebele
+    'nso': 'Northern Sotho', # Sepedi
+}
+
+# Locale selector function
+def get_locale():
+    user_lang = request.args.get('lang')
+    if user_lang in LANGUAGES:
+        return user_lang
+    return request.accept_languages.best_match(LANGUAGES.keys())
+
+# Secure configurations
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-default-secret-key')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///cases.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# Mail Configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+
+mail = Mail(app)
+
+# File upload configuration
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'mp4', 'mp3', 'wav', 'pdf', 'doc', 'docx'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+# Azure Blob Storage Configuration
+AZURE_BLOB_CONNECTION_STRING = os.getenv('AZURE_BLOB_CONNECTION_STRING')
+BLOB_CONTAINER_NAME = os.getenv('BLOB_CONTAINER_NAME', 'uploads')
+
+# Azure Cognitive Services Configuration
+AZURE_SPEECH_KEY = os.getenv('AZURE_SPEECH_KEY')
+AZURE_REGION = os.getenv('AZURE_REGION')
+
+# Helper functions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def generate_reference_number():
+    return str(uuid.uuid4()).split('-')[0]
+
+def upload_to_blob(file_path, file_name):
+    try:
+        blob_service = BlobServiceClient.from_connection_string(AZURE_BLOB_CONNECTION_STRING)
+        blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=file_name)
+        with open(file_path, "rb") as data:
+            blob_client.upload_blob(data, overwrite=True)
+        return blob_client.url
+    except Exception as e:
+        return f"Error uploading to blob: {e}"
+
+def voice_to_text(file_path):
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_REGION)
+        audio_input = speechsdk.AudioConfig(filename=file_path)
+        speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
+
+        result = speech_recognizer.recognize_once()
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            return result.text
+        elif result.reason == speechsdk.ResultReason.NoMatch:
+            return "No speech recognized"
+        else:
+            return f"Speech recognition failed: {result.reason}"
+    except Exception as e:
+        return f"Error in voice-to-text conversion: {e}"
+
+def add_signature(file_path, user_name):
+    signature_dir = os.path.join(os.getcwd(), 'static', 'signatures')
+    os.makedirs(signature_dir, exist_ok=True)
+
+    # Save the signature file
+    filename = secure_filename(f"{user_name}_signature.png")
+    signature_path = os.path.join(signature_dir, filename)
+    with open(signature_path, 'wb') as f:
+        f.write(file_path)  # Assuming file_path is the signature data.
+
+    return signature_path
+
+def get_translation(key):
+    lang = session.get('language', DEFAULT_LANGUAGE)
+    return translations.get(lang, {}).get(key, key)  # Fallback to key if translation not found
+
+
+# Database model for cases
+class Case(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    reference_number = db.Column(db.String(36), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    surname = db.Column(db.String(100), nullable=False)
+    id_number = db.Column(db.String(13), nullable=False)
+    cellphone = db.Column(db.String(15), nullable=False)
+    email = db.Column(db.String(100), nullable=False)
+    address = db.Column(db.String(255), nullable=False)
+    date_time = db.Column(db.DateTime, nullable=False)
+    crime_type = db.Column(db.String(50), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    translated_description = db.Column(db.Text, nullable=True)
+    uploaded_files = db.Column(db.Text, nullable=True)  # JSON for file paths
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    case_state = db.Column(db.String(10), nullable=False, default='Open')  # New column for case state
+    assigned_user = db.Column(db.String(100), nullable=True)  # New column for assigned user
+    user_area = db.Column(db.String(100), nullable=True)  # New column for user area
+    num_cases = db.Column(db.Integer, default=0)  # New column for number of cases
+
+# Routes
+
+@app.route('/')
+def index():
+    lang = session.get('language', 'en')  # Default to 'en' if not set
+    greeting = get_translation(lang, 'hello')  # Fetch translation for "hello"
+    signed_document = get_signed_document()  # Fetch signed document if needed
+
+    if request.method == 'POST':  # Ensure this is a POST request
+        # Handle file upload
+        uploaded_file = request.files.get('file')
+        if uploaded_file and uploaded_file.filename != '':
+            # Process the uploaded file
+            filename = secure_filename(uploaded_file.filename)
+            file_path = os.path.join('uploads', filename)
+            uploaded_file.save(file_path)
+            return jsonify({'message': 'Document certified successfully!', 'filename': filename})
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    return render_template(
+        'frontendcode.html',
+        signed_document=signed_document,
+        greeting=greeting,
+        lang=lang
+    )
+
+        # Get selected language
+        selected_language = request.form.get('language')
+        translations = get_translations(selected_language)
+
+        # Add signature to document (logic depends on the specific document format)
+        signature_path = os.path.join(app.config['UPLOAD_FOLDER'], 'signature.png')
+
+        # Process the form or file (customize this as needed)
+        # Logic for merging the file and signature can be added here.
+
+        return redirect(url_for('index'))
+
+    # Default load with English translations
+    translations = get_translations('en')
+    return render_template('frontencode.html', translations=translations)
+
+@app.route('/set_language/<lang_code>')
+def set_language(lang_code):
+    if lang_code in translations:
+        session['language'] = lang_code
+    return redirect(request.referrer or url_for('index'))
+
+@app.before_request
+def before_request():
+    # Set the language based on session
+    if 'lang' in session:
+        g.lang = session['lang']
+    else:
+        g.lang = 'en'  # Default language
+
+@app.route('/submit_case', methods=['POST'])
+def submit_case():
+    data = request.form.to_dict()
+    response = {}
+
+    # Get the user's postal code input
+    postal_code = request.form['postal_code']
+    postal_code_stations = {
+        '0001': 'Pretoria Central Station',
+        '2000': 'Johannesburg Station',
+        '8000': 'Cape Town Station',
+        '6000': 'Durban Station',
+        '4000': 'Port Elizabeth Station',
+        '3000': 'Pietermaritzburg Station',
+        '1000': 'Durban Central Station',
+        '6100': 'East London Station',    
+        '7000': 'Cape Flats Police Station', 
+    }
+    
+    # Fetch the nearest police station based on postal code
+    nearest_station = postal_code_stations.get(postal_code, 'Unknown Station')
+
+    # Handle form data
+    name = data.get('name')
+    surname = data.get('surname')
+    id_number = data.get('id_number')
+    cellphone = data.get('cellphone')
+    email = data.get('email')
+    address = data.get('address')
+    date_time = data.get('date_time')
+    crime_type = data.get('crime_type')
+    description = data.get('description', '')
+
+    # Generate a unique reference number
+    reference_number = generate_reference_number()
+    response['reference_number'] = reference_number
+    
+    # Handle language translation
+    language = data.get('language', 'en')
+    translated_description = translator.translate(description, src='en', dest=language).text
+    response['translated_description'] = translated_description
+
+    # Handle media uploads (image, video, documents)
+    uploaded_files = []
+    for file_key in ['image', 'video', 'document']:
+        if file_key in request.files:
+            file = request.files[file_key]
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                uploaded_files.append(filepath)
+    response['uploaded_files'] = uploaded_files
+
+    # Save case details
+    case_log = {
+        'reference_number': reference_number,
+        'name': name,
+        'surname': surname,
+        'id_number': id_number,
+        'cellphone': cellphone,
+        'email': email,
+        'address': address,
+        'date_time': date_time,
+        'crime_type': crime_type,
+        'description': description,
+        'translated_description': translated_description,
+        'uploaded_files': uploaded_files,
+        'case_state': 'Open',
+    }
+    
+    case = Case(**case_log)
+    db.session.add(case)
+    db.session.commit()
+
+    return jsonify(response)
+
+# Certify Document Route
+@app.route('/certify_document', methods=['POST'])
+def certify_document():
+    file = request.files.get('file')
+    user_name = request.form.get('name')
+    user_email = request.form.get('email')
+
+    if not file or file.filename == '':
+        return jsonify({"message": "No file uploaded"}), 400
+
+    if file and allowed_file(file.filename):
+        # Save the uploaded file
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
+        file.save(file_path)
+
+        # Add the signature to the document
+        signature_path = os.path.join(app.config['UPLOAD_FOLDER'], 'signature.png')
+        if not os.path.exists(signature_path):
+            return jsonify({"message": "Signature file not found!"}), 400
+
+        signed_path = stamp_signature(file_path, signature_path)
+
+        # Email the signed document
+        msg = Message(
+            "Certified Document",
+            sender=os.getenv('MAIL_USERNAME'),
+            recipients=[user_email]
+        )
+        msg.body = f"Dear {user_name},\n\nYour document has been successfully certified."
+        with open(signed_path, 'rb') as signed_file:
+            msg.attach("signed_document.pdf", "application/pdf", signed_file.read())
+        mail.send(msg)
+
+        # Return a download link
+        download_url = url_for('download_file', filename=f"signed_{file.filename}")
+        return jsonify({"message": "Document certified and emailed successfully", "download_link": download_url})
+    else:
+        return jsonify({"message": "Invalid file type"}), 400
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    return send_from_directory(app.config['DOWNLOAD_FOLDER'], filename, as_attachment=True)
+
+
+@app.route('/upload_signature', methods=['GET', 'POST'])
+def upload_signature():
+    if request.method == 'POST':
+        if 'signature' not in request.files:
+            return "No file uploaded", 400
+        file = request.files['signature']
+        if file.filename != '':
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], 'signature.png')
+            file.save(file_path)
+            return f"Signature uploaded successfully: <a href='/{file_path}'>View Signature</a>"
+    return render_template('upload_signature.html')
+
+def stamp_signature(pdf_path, signature_path):
+    # Temporary output path
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'signed_document.pdf')
+
+    # Read the existing PDF
+    pdf_reader = PdfReader(pdf_path)
+    pdf_writer = PdfWriter()
+
+    # Add signature to each page
+    for page in pdf_reader.pages:
+        packet = BytesIO()
+        c = canvas.Canvas(packet, pagesize=letter)
+
+        # Set the position and size of the signature
+        c.drawImage(signature_path, x=400, y=100, width=100, height=50)  # Adjust position/size as needed
+        c.save()
+
+        packet.seek(0)
+        overlay_pdf = PdfReader(packet)
+        page.merge_page(overlay_pdf.pages[0])
+        pdf_writer.add_page(page)
+
+    # Write out the signed document
+    with open(output_path, "wb") as output_file:
+        pdf_writer.write(output_file)
+
+    return output_path
+
+def get_translation(lang):
+    return translations.get(lang, translations[DEFAULT_LANGUAGE])
+
+   
+    if request.method == 'POST':
+        # Handle file upload
+        if 'file' not in request.files:
+            return render_template('frontendcode.html', t=t, error="No file uploaded!")
+        
+        file = request.files['file']
+        if file.filename == '':
+            return render_template('frontendcode.html', t=t, error="No file selected!")
+        
+        if file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+            file.save(file_path)
+            session['uploaded_file'] = file.filename
+            return render_template('frontendcode.html', t=t, success="File uploaded successfully!")
+    
+    return render_template('frontendcode.html', t=t)
+
+@app.route('/stamp', methods=['POST'])
+def stamp_signature(pdf_path, signature_path):
+    output_path = os.path.join(app.config['DOWNLOAD_FOLDER'], f"signed_{os.path.basename(pdf_path)}")
+
+    try:
+        # Read the PDF and create an overlay with the signature
+        pdf_reader = PdfReader(pdf_path)
+        pdf_writer = PdfWriter()
+
+        for page in pdf_reader.pages:
+            packet = BytesIO()
+            c = canvas.Canvas(packet, pagesize=letter)
+            c.drawImage(signature_path, x=400, y=100, width=100, height=50)  # Adjust as needed
+            c.save()
+
+            packet.seek(0)
+            overlay_pdf = PdfReader(packet)
+            page.merge_page(overlay_pdf.pages[0])
+            pdf_writer.add_page(page)
+
+        with open(output_path, "wb") as output_file:
+            pdf_writer.write(output_file)
+
+        return output_path
+    except Exception as e:
+        print(f"Error stamping signature: {e}")
+        return None
+
+@app.route('/upload_signature', methods=['GET', 'POST'])
+def upload_signature():
+    if request.method == 'POST':
+        file = request.files.get('signature')
+        if not file or file.filename == '':
+            return "No file uploaded", 400
+
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], 'signature.png')
+        file.save(file_path)
+        return f"Signature uploaded successfully: <a href='{url_for('static', filename='uploads/signature.png')}'>View Signature</a>"
+    return render_template('upload_signature.html')
+
+@app.route('/change_language/<lang>')
+def change_language(lang):
+    session['language'] = lang
+    return render_template('frontendcode.html', t=get_translation(lang))
+
+def add_signature_to_pdf(input_pdf, signature_image, output_pdf):
+    # Add signature image to PDF (placeholder logic)
+    # In production, use PyPDF2 or a library like ReportLab to overlay the image
+    writer = PdfWriter()
+    reader = PdfReader(input_pdf)
+    for page in reader.pages:
+        writer.add_page(page)
+    with open(output_pdf, 'wb') as f:
+        writer.write(f)
+
+# Running the app
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+21/01
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAPS Digital Services</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .header {
+            background-color: #004ba0;
+            color: white;
+            padding: 20px;
+        }
+        .footer {
+            background-color: #004ba0;
+            color: white;
+            text-align: center;
+            padding: 10px 0;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header text-center">
+        <h1>SAPS Digital Services</h1>
+        <p>“Serving with Integrity and Commitment”</p>
+    </div>
+
+    <div class="container my-5">
+        <!-- Contact Information -->
+        <div class="alert alert-info text-center">
+            <strong>Contact SAPS:</strong> 10111 | <strong>Email:</strong> support@saps.gov.za | 
+            <strong>Crime Stop Hotline:</strong> 08600 10111
+        </div>
+                <!-- Add other languages as options -->
+            </select>
+
+        <script>
+        let audioData;
+        let mediaRecorder;
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = event => {
+                        audioData = event.data;
+                        const audioURL = URL.createObjectURL(audioData);
+                        document.getElementById("audioPlayer").src = audioURL;
+                    };
+                    mediaRecorder.start();
+                })
+                .catch(error => {
+                    console.error('Error accessing the microphone: ', error);
+                });
+        }
+
+        function stopRecording() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+            }
+        }
+        </script>
+
+        <!-- Additional Section: Language Selection -->
+        <div class="mb-4">
+            <label for="language" class="form-label">Choose Language:</label>
+            <select id="language" class="form-select">
+<a href="{{ url_for('set_language', language='en') }}">English</a>
+<a href="{{ url_for('set_language', language='af') }}">Afrikaans</a>
+                <option value="english">English</option>
+                <option value="afrikaans">Afrikaans</option>
+                <option value="zulu">Zulu</option>
+                <option value="xhosa">Xhosa</option>
+                <option value="sotho">Sotho</option>
+                <option value="tswana">Tswana</option>
+                <option value="venda">Venda</option>
+                <option value="tsonga">Tsonga</option>
+                <option value="swazi">Swazi</option>
+                <option value="ndebele">Ndebele</option>
+                <option value="northern_sotho">Northern Sotho</option>
+            </select>
+        </div>
+
+        <!-- Case Logging Form -->
+        <h2>Log a Case</h2>
+        <form id="caseForm" method="POST" enctype="multipart/form-data">
+            <!-- Personal Details -->
+            <h3>Personal Details</h3>
+            <div class="mb-3">
+                <label for="name" class="form-label">Name</label>
+                <input type="text" class="form-control" id="name" name="name" placeholder="Enter your first name" required>
+            </div>
+            <div class="mb-3">
+                <label for="surname" class="form-label">Surname</label>
+                <input type="text" class="form-control" id="surname" name="surname" placeholder="Enter your surname" required>
+            </div>
+            <div class="mb-3">
+                <label for="idNumber" class="form-label">ID Number</label>
+                <input type="text" class="form-control" id="idNumber" name="idNumber" placeholder="Enter your ID number" required>
+            </div>
+            <div class="mb-3">
+                <label for="cellNumber" class="form-label">Cellphone Number</label>
+                <input type="text" class="form-control" id="cellNumber" name="cellNumber" placeholder="Enter your phone number" required>
+            </div>
+            <div class="mb-3">
+                <label for="email" class="form-label">Email Address</label>
+                <input type="email" class="form-control" id="email" name="email" placeholder="Enter your email address" required>
+            </div>
+            <div class="mb-3">
+    <label for="unit_number">Unit Number:</label>
+    <input type="text" name="unit_number" required>
+
+    <label for="street_address">Street Address:</label>
+    <input type="text" name="street_address" required>
+
+    <label for="suburb">Suburb:</label>
+    <input type="text" name="suburb" required>
+
+    <label for="postal_code">Postal Code:</label>
+    <input type="text" name="postal_code" required>
+</form>
+            </div>
+
+            <!-- Incident Details -->
+            <h3>Incident Details</h3>
+            <div class="mb-3">
+                <label for="incidentType" class="form-label">Type of Crime</label>
+                <select id="incidentType" class="form-select" name="incidentType" required>
+                    <option value="">Select Crime Type</option>
+                    <option value="theft">Theft</option>
+                    <option value="GBV">GBV</option>
+                    <option value="assault">Assault</option>
+                    <option value="burglary">Burglary</option>
+                    <option value="fraud">Fraud</option>
+                    <option value="carjacking">Carjacking</option>
+                    <option value="drug_related">Drug-Related Crime</option>
+                    <option value="murder">Murder</option>
+                    <option value="arson">Arson</option>
+                    <option value="cybercrime">Cybercrime</option>
+                    <option value="rape">Rape</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label for="incidentDateTime" class="form-label">Date and Time of Incident</label>
+                <input type="datetime-local" class="form-control" id="incidentDateTime" name="incidentDateTime" required>
+            </div>
+
+        <div class="mb-3">
+            <label for="voiceNote">Upload Voicenote to be Transcribed Voicenote</label>
+            <input type="file" class="form-control" id="voiceNote" name="voiceNote">
+            <button type="button" onclick="startRecording()">Start Recording</button>
+            <audio id="audioPlayer" controls></audio>
+
+            <div class="mb-3">
+                <label for="incidentDescription" class="form-label">Incident Description</label>
+                <textarea class="form-control" id="incidentDescription" name="incidentDescription" rows="5" placeholder="Provide detailed information about the incident" required></textarea>
+            </div>
+
+            <!-- Tip-offs -->
+            <div class="mb-4">
+                <h3>Anonymous Tip-off</h3>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="anonymousTipOff" name="anonymousTipOff">
+                    <label class="form-check-label" for="anonymousTipOff">
+                        Submit this case as an anonymous tip-off
+                    </label>
+                </div>
+            </div>
+
+            <!-- File Uploads -->
+            <h3>Upload Supporting Files</h3>
+            <div class="mb-3">
+                <label for="voiceNote" class="form-label">Upload Voice Note</label>
+                <input type="file" class="form-control" id="voiceNote" name="voiceNote" accept="audio/*">
+            </div>
+            <div class="mb-3">
+                <label for="images" class="form-label">Upload Images</label>
+                <input type="file" class="form-control" id="images" name="images" accept="image/*" multiple>
+            </div>
+            <div class="mb-3">
+                <label for="videos" class="form-label">Upload Videos</label>
+                <input type="file" class="form-control" id="videos" name="videos" accept="video/*" multiple>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Submit Case</button>
+        </form>
+
+<!-- confirmation.html -->
+<h1>Case Submitted Successfully!</h1>
+<p>Case Reference: {{ case_reference }}</p>
+<p>Nearest Police Station: {{ station }}</p>
+
+        <!-- Additional Services -->
+        <h2 class="mt-5">Additional Services</h2>
+        <form id="certificationForm" method="POST" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label for="documentType" class="form-label">Select Document Type:</label>
+                <select id="documentType" class="form-select" required>
+                    <option value="">Choose...</option>
+                    <option value="id">ID</option>
+                    <option value="police_clearance">Police Clearance</option>
+                    <option value="marriage_certificate">Marriage Certificate</option>
+                    <option value="lawyer_related">Lawyer-Related Documents</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="documentUpload" class="form-label">Upload Document:</label>
+                <input type="file" class="form-control" id="documentUpload" name="documentUpload" required>
+            </div>
+<form id="certifyForm" method="post" enctype="multipart/form-data">
+
+<div id="result">
+    <!-- Results will appear here -->
+</div>
+
+<script>
+document.getElementById('certifyForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+
+    const formData = new FormData(this);
+    const resultDiv = document.getElementById('result');
+
+    try {
+        const response = await fetch('/certify_document', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+        if (response.ok) {
+            resultDiv.innerHTML = `
+                <p>${result.message}</p>
+                <a href="${result.download_url}" target="_blank">Download Certified Document</a>
+                <form id="emailForm">
+                    <label for="email">Send via Email:</label>
+                    <input type="email" id="email" name="email" placeholder="Enter recipient's email" required>
+                    <input type="hidden" name="signed_file_path" value="${result.signed_file_path}">
+                    <button type="submit">Send Email</button>
+                </form>
+            `;
+
+            document.getElementById('emailForm').addEventListener('submit', async function (e) {
+                e.preventDefault();
+                const emailData = new FormData(this);
+
+                const emailResponse = await fetch('/email', {
+                    method: 'POST',
+                    body: emailData
+                });
+
+                const emailResult = await emailResponse.json();
+                alert(emailResult.message || emailResult.error);
+            });
+        } else {
+            resultDiv.textContent = result.error || 'Something went wrong.';
+        }
+    } catch (error) {
+        resultDiv.textContent = 'Error occurred: ' + error.message;
+    }
+});
+</script>
+
+            <div class="mb-3">
+              
+            </div>
+
+            <button type="submit" class="btn btn-primary">Certify Document</button>
+        </form>
+    </div>
+<!-- document_certification_confirmation.html -->
+<h1>Document Certified Successfully!</h1>
+<p>Your certified document is ready for download.</p>
+<a href="{{ url_for('download_signed_document', document_id=signed_document.id) }}">Download Certified Document</a>
+    <div class="footer">
+        <p>&copy; 2025 SAPS Digital Services. All Rights Reserved.</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+111
+from flask import Flask, render_template, request, jsonify, redirect, session, g
+from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail, Message
+from azure.storage.blob import BlobServiceClient
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from flask_babel import Babel
+import azure.cognitiveservices.speech as speechsdk
+from dotenv import load_dotenv
+import os
+import uuid
+from datetime import datetime
+import logging
+from sqlalchemy import create_engine
+from googletrans import Translator
+import speech_recognition as sr
+from werkzeug.utils import secure_filename
+
+# Logging configuration
+logging.basicConfig()
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+# Load environment variables
+load_dotenv()
+
+# Flask app setup
+app = Flask(__name__)
+
+# Babel for multilingual support
+app.config['BABEL_DEFAULT_LOCALE'] = 'en'
+app.config['BABEL_TRANSLATION_DIRECTORIES'] = 'translations'
+# Initialize Babel
+babel = Babel(app)
+
+# Supported languages
+LANGUAGES = {
+    'en': 'English',         # isiNgesi
+    'af': 'Afrikaans',       # Afrikaans
+    'zu': 'Zulu',            # isiZulu
+    'xh': 'Xhosa',           # isiXhosa
+    'st': 'Sotho',           # Sesotho
+    'ts': 'Tsonga',          # Xitsonga
+    'ss': 'Swati',           # siSwati
+    'tn': 'Tswana',          # Setswana
+    've': 'Venda',           # Tshivenda
+    'nr': 'Ndebele',         # isiNdebele
+    'nso': 'Northern Sotho', # Sepedi
+}
+
+# Locale selector function
+@babel.localeselector
+def get_locale():
+    return request.accept_languages.best_match(LANGUAGES.keys())
+
+babel.locale_selector_func = get_locale  # Set the locale selector function
+
+# Secure configurations
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-default-secret-key')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///cases.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# Mail Configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+
+mail = Mail(app)
+
+# File upload configuration
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'mp4', 'mp3', 'wav', 'pdf', 'doc', 'docx'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+# Azure Blob Storage Configuration
+AZURE_BLOB_CONNECTION_STRING = os.getenv('AZURE_BLOB_CONNECTION_STRING')
+BLOB_CONTAINER_NAME = os.getenv('BLOB_CONTAINER_NAME', 'uploads')
+
+# Azure Cognitive Services Configuration
+AZURE_SPEECH_KEY = os.getenv('AZURE_SPEECH_KEY')
+AZURE_REGION = os.getenv('AZURE_REGION')
+
+# Helper functions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def generate_reference_number():
+    return str(uuid.uuid4()).split('-')[0]
+
+def upload_to_blob(file_path, file_name):
+    try:
+        blob_service = BlobServiceClient.from_connection_string(AZURE_BLOB_CONNECTION_STRING)
+        blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=file_name)
+        with open(file_path, "rb") as data:
+            blob_client.upload_blob(data, overwrite=True)
+        return blob_client.url
+    except Exception as e:
+        return f"Error uploading to blob: {e}"
+
+def voice_to_text(file_path):
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_REGION)
+        audio_input = speechsdk.AudioConfig(filename=file_path)
+        speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
+
+        result = speech_recognizer.recognize_once()
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            return result.text
+        elif result.reason == speechsdk.ResultReason.NoMatch:
+            return "No speech recognized"
+        else:
+            return f"Speech recognition failed: {result.reason}"
+    except Exception as e:
+        return f"Error in voice-to-text conversion: {e}"
+
+def add_signature(file_path, user_name):
+    signature_dir = os.path.join(os.getcwd(), 'static', 'signatures')
+    os.makedirs(signature_dir, exist_ok=True)
+
+    # Save the signature file
+    filename = secure_filename(f"{user_name}_signature.png")
+    signature_path = os.path.join(signature_dir, filename)
+    with open(signature_path, 'wb') as f:
+        f.write(file_path)  # Assuming file_path is the signature data.
+
+    return signature_path
+
+
+# Database model for cases
+class Case(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    reference_number = db.Column(db.String(36), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    surname = db.Column(db.String(100), nullable=False)
+    id_number = db.Column(db.String(13), nullable=False)
+    cellphone = db.Column(db.String(15), nullable=False)
+    email = db.Column(db.String(100), nullable=False)
+    address = db.Column(db.String(255), nullable=False)
+    date_time = db.Column(db.DateTime, nullable=False)
+    crime_type = db.Column(db.String(50), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    translated_description = db.Column(db.Text, nullable=True)
+    uploaded_files = db.Column(db.Text, nullable=True)  # JSON for file paths
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    case_state = db.Column(db.String(10), nullable=False, default='Open')  # New column for case state
+    assigned_user = db.Column(db.String(100), nullable=True)  # New column for assigned user
+    user_area = db.Column(db.String(100), nullable=True)  # New column for user area
+    num_cases = db.Column(db.Integer, default=0)  # New column for number of cases
+
+# Routes
+
+@app.route('/')
+def index():
+    return render_template('frontendcode.html')
+
+@app.route('/set_language/<language>')
+def set_language(language):
+    session['lang'] = language
+    return redirect(request.referrer)  # Redirect back to the previous page
+
+@app.before_request
+def before_request():
+    # Set the language based on session
+    if 'lang' in session:
+        g.lang = session['lang']
+    else:
+        g.lang = 'en'  # Default language
+
+@app.route('/submit_case', methods=['POST'])
+def submit_case():
+    data = request.form.to_dict()
+    response = {}
+
+    # Get the user's postal code input
+    postal_code = request.form['postal_code']
+    postal_code_stations = {
+        '0001': 'Pretoria Central Station',
+        '2000': 'Johannesburg Station',
+        '8000': 'Cape Town Station',
+        '6000': 'Durban Station',
+        '4000': 'Port Elizabeth Station',
+        '3000': 'Pietermaritzburg Station',
+        '1000': 'Durban Central Station',
+        '6100': 'East London Station',    
+        '7000': 'Cape Flats Police Station', 
+    }
+    
+    # Fetch the nearest police station based on postal code
+    nearest_station = postal_code_stations.get(postal_code, 'Unknown Station')
+
+    # Handle form data
+    name = data.get('name')
+    surname = data.get('surname')
+    id_number = data.get('id_number')
+    cellphone = data.get('cellphone')
+    email = data.get('email')
+    address = data.get('address')
+    date_time = data.get('date_time')
+    crime_type = data.get('crime_type')
+    description = data.get('description', '')
+
+    # Generate a unique reference number
+    reference_number = generate_reference_number()
+    response['reference_number'] = reference_number
+    
+    # Handle language translation
+    language = data.get('language', 'en')
+    translated_description = translator.translate(description, src='en', dest=language).text
+    response['translated_description'] = translated_description
+
+    # Handle media uploads (image, video, documents)
+    uploaded_files = []
+    for file_key in ['image', 'video', 'document']:
+        if file_key in request.files:
+            file = request.files[file_key]
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                uploaded_files.append(filepath)
+    response['uploaded_files'] = uploaded_files
+
+    # Save case details
+    case_log = {
+        'reference_number': reference_number,
+        'name': name,
+        'surname': surname,
+        'id_number': id_number,
+        'cellphone': cellphone,
+        'email': email,
+        'address': address,
+        'date_time': date_time,
+        'crime_type': crime_type,
+        'description': description,
+        'translated_description': translated_description,
+        'uploaded_files': uploaded_files,
+        'case_state': 'Open',
+    }
+    
+    case = Case(**case_log)
+    db.session.add(case)
+    db.session.commit()
+
+    return jsonify(response)
+
+# Certify Document Route
+@app.route('/certify_document', methods=['POST'])
+def certify_document():
+    file = request.files['file']
+    user_name = request.form.get('name')
+    # Ensure valid file
+    if file and allowed_file(file.filename):
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
+        file.save(file_path)
+        signature_path = add_signature(file_path, user_name)
+
+        # Send the document via email
+        msg = Message("Certified Document",
+                      sender=os.getenv('MAIL_USERNAME'),
+                      recipients=[request.form['email']])
+        msg.body = f"Dear {user_name},\n\nYour document has been successfully certified."
+        with open(signature_path, 'rb') as signature_file:
+            msg.attach("signature.png", "image/png", signature_file.read())
+        mail.send(msg)
+        
+        return jsonify({"message": "Document certified and emailed successfully"})
+    else:
+        return jsonify({"message": "Invalid file type"}), 400
+
+# Running the app
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+......
+from flask import Flask, render_template, request, jsonify, redirect, flash, url_for, session
+from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail, Message
+from azure.storage.blob import BlobServiceClient
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from flask_babel import Babel
+import azure.cognitiveservices.speech as speechsdk
+from dotenv import load_dotenv
+import os
+import uuid
+from datetime import datetime
+import logging
+from sqlalchemy import create_engine
+from googletrans import Translator
+import speech_recognition as sr
+from werkzeug.utils import secure_filename
+
+# Logging configuration
+logging.basicConfig()
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+# Load environment variables
+load_dotenv()
+
+# Flask app setup
+app = Flask(__name__)
+
+# Babel for multilingual support
+app.config['BABEL_DEFAULT_LOCALE'] = 'en'
+app.config['BABEL_TRANSLATION_DIRECTORIES'] = 'translations'
+# Initialize Babel
+babel = Babel(app)
+
+# Supported languages
+LANGUAGES = {
+    'en': 'English',         # isiNgesi
+    'af': 'Afrikaans',       # Afrikaans
+    'zu': 'Zulu',            # isiZulu
+    'xh': 'Xhosa',           # isiXhosa
+    'st': 'Sotho',           # Sesotho
+    'ts': 'Tsonga',          # Xitsonga
+    'ss': 'Swati',           # siSwati
+    'tn': 'Tswana',          # Setswana
+    've': 'Venda',           # Tshivenda
+    'nr': 'Ndebele',         # isiNdebele
+    'nso': 'Northern Sotho', # Sepedi
+}
+
+# Locale selector function
+@babel.localeselector
+def get_locale():
+    return request.get(['en', 'af', 'zu', 'xh', 'st', 'ts', 'ss', 'tn', 've', 'nr', 'nso'])
+
+babel.locale_selector_func = get_locale  # Set the locale selector function
+
+# Secure configurations
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-default-secret-key')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///cases.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+
+# File upload configuration
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'mp4', 'mp3', 'wav', 'pdf', 'doc', 'docx'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+# Initialize tools
+db = SQLAlchemy(app)
+mail = Mail(app)
+translator = Translator()
+recognizer = sr.Recognizer()
+
+class Case(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    reference_number = db.Column(db.String(36), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    surname = db.Column(db.String(100), nullable=False)
+    id_number = db.Column(db.String(13), nullable=False)
+    cellphone = db.Column(db.String(15), nullable=False)
+    email = db.Column(db.String(100), nullable=False)
+    address = db.Column(db.String(255), nullable=False)
+    date_time = db.Column(db.DateTime, nullable=False)
+    crime_type = db.Column(db.String(50), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    translated_description = db.Column(db.Text, nullable=True)
+    uploaded_files = db.Column(db.Text, nullable=True)  # JSON for file paths
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    case_state = db.Column(db.String(10), nullable=False, default='Open')  # New column for case state
+    assigned_user = db.Column(db.String(100), nullable=True)  # New column for assigned user
+    user_area = db.Column(db.String(100), nullable=True)  # New column for user area
+    num_cases = db.Column(db.Integer, default=0)  # New column for number of cases
+
+# Mail Configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+
+# Azure Blob Storage Configuration
+AZURE_BLOB_CONNECTION_STRING = os.getenv('AZURE_BLOB_CONNECTION_STRING')
+BLOB_CONTAINER_NAME = os.getenv('BLOB_CONTAINER_NAME', 'uploads')
+
+# Azure Cognitive Services Configuration
+AZURE_SPEECH_KEY = os.getenv('AZURE_SPEECH_KEY')
+AZURE_REGION = os.getenv('AZURE_REGION')
+
+# Helper functions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def generate_reference_number():
+    return str(uuid.uuid4()).split('-')[0]
+
+def upload_to_blob(file_path, file_name):
+    try:
+        blob_service = BlobServiceClient.from_connection_string(AZURE_BLOB_CONNECTION_STRING)
+        blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=file_name)
+        with open(file_path, "rb") as data:
+            blob_client.upload_blob(data, overwrite=True)
+        return blob_client.url
+    except Exception as e:
+        return f"Error uploading to blob: {e}"
+
+def voice_to_text(file_path):
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_REGION)
+        audio_input = speechsdk.AudioConfig(filename=file_path)
+        speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
+
+        result = speech_recognizer.recognize_once()
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            return result.text
+        elif result.reason == speechsdk.ResultReason.NoMatch:
+            return "No speech recognized"
+        else:
+            return f"Speech recognition failed: {result.reason}"
+    except Exception as e:
+        return f"Error in voice-to-text conversion: {e}"
+
+def add_signature(file_path, user_name):
+    signature_dir = os.path.join(os.getcwd(), 'static', 'signatures')
+    os.makedirs(signature_dir, exist_ok=True)
+
+    # Save the signature file
+    filename = secure_filename(f"{user_name}_signature.png")
+    signature_path = os.path.join(signature_dir, filename)
+    with open(signature_path, 'wb') as f:
+        f.write(file_path)  # Assuming file_path is the signature data.
+
+    return signature_path
+
+
+@app.errorhandler(400)
+def bad_request(error):
+    return jsonify({'error': 'Bad Request', 'message': str(error)}), 400
+
+@app.errorhandler(500)
+def server_error(error):
+    return jsonify({'error': 'Internal Server Error', 'message': str(error)}), 500
+
+# Routes
+@app.route('/')
+def index():
+    return render_template('frontendcode.html')
+
+@app.route('/set_language/<language>')
+def set_language(language):
+    session['lang'] = language
+    return redirect(request.translations)  # Redirect back to the previous page
+
+@app.before_request
+def before_request():
+    # Set the language based on session
+    if 'lang' in session:
+        g.lang = session['lang']
+    else:
+        g.lang = 'en'  # Default language
+
+postal_code_stations = {
+    '0001': 'Pretoria Central Station',
+    '2000': 'Johannesburg Station',
+    '8000': 'Cape Town Station',
+    '6000': 'Durban Station',
+    '4000': 'Port Elizabeth Station',
+    '3000': 'Pietermaritzburg Station',
+    '1000': 'Durban Central Station',
+    '6100': 'East London Station',    
+    '7000': 'Cape Flats Police Station', 
+    # Add more postal codes and stations as needed
+}
+
+@app.route('/submit_case', methods=['POST'])
+def submit_case():
+    data = request.form.to_dict()
+    response = {}
+
+    # Get the user's postal code input
+    postal_code = request.form['postal_code']
+    
+    # Fetch the nearest police station based on postal code
+    nearest_station = postal_code_stations.get(postal_code, 'Unknown Station')
+
+    # Process the form data (unit number, street address, suburb, etc.)
+    unit_number = request.form['unit_number']
+    street_address = request.form['street_address']
+    suburb = request.form['suburb']
+
+    # Handle text fields
+    name = data.get('name')
+    surname = data.get('surname')
+    id_number = data.get('id_number')
+    cellphone = data.get('cellphone')
+    email = data.get('email')
+    address = data.get('address')
+    date_time = data.get('date_time')
+    crime_type = data.get('crime_type')
+    description = data.get('description', '')
+
+    # Create a unique reference number for the case
+    reference_number = generate_reference_number()
+    response['reference_number'] = reference_number
+    return render_template('confirmation.html', case_reference=case_reference, station=nearest_station)
+    
+# Handle language translation
+    language = data.get('language', 'en')
+    translated_description = translator.translate(description, src='en', dest=language).text
+    response['translated_description'] = translated_description
+
+    # Handle voice note
+    if 'voice_note' in request.files:
+        voice_note = request.files['voice_note']
+        if voice_note and allowed_file(voice_note.filename):
+            filename = secure_filename(voice_note.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            voice_note.save(filepath)
+            transcribed_text = voice_to_text(filepath)
+            response['voice_transcription'] = translator.translate(transcribed_text, src='en', dest=language).text
+
+    # Handle media uploads
+    uploaded_files = []
+    for file_key in ['image', 'video', 'document']:
+        if file_key in request.files:
+            file = request.files[file_key]
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                uploaded_files.append(filepath)
+    response['uploaded_files'] = uploaded_files
+
+    # Save case details (example: save to a file for now)
+    case_log = {
+        'reference_number': reference_number,
+        'name': name,
+        'surname': surname,
+        'id_number': id_number,
+        'cellphone': cellphone,
+        'email': email,
+        'address': address,
+        'date_time': date_time,
+        'crime_type': crime_type,
+        'description': description,
+        'translated_description': translated_description,
+        'uploaded_files': uploaded_files,
+        'timestamp': datetime.now().isoformat()
+    }
+
+    with open('cases.log', 'a') as log_file:
+        log_file.write(str(case_log) + '\n')
+
+    return jsonify(response)
+
+@app.route('/certify_document', methods=['POST'])
+def certify_document():
+    if 'document' not in request.files:
+        return jsonify({'error': 'No document uploaded'}), 400
+
+    # Get uploaded file and user name
+    document = request.files['document']
+    user_name = request.form.get('user_name', 'Unknown User')  # Default user name if not provided
+
+    # Validate file type
+    if document and allowed_file(document.filename):
+        # Save the uploaded file
+        filename = secure_filename(document.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        document.save(filepath)
+
+    # Retrieve the stored signature (from your database)
+    signature_id = request.form['signature_id']  # Assuming you pass the signature ID
+    signature = get_signature_from_db(signature_id)  # Fetch the signature from DB
+
+    # Apply the signature to the document
+    signed_document = apply_signature_to_document(document, signature)
+
+    # Generate a download link or send an email with the signed document
+    # Code for sending the email or generating a download link
+    send_email_with_document(signed_document)
+    
+    return render_template('document_certification_confirmation.html', document=signed_document)
+
+        # Apply digital signature
+        signed_file_path = add_signature(filepath, user_name)
+
+        # Generate signed document URL
+        blob_url = upload_to_blob(signed_file_path, os.path.basename(signed_file_path))
+        if "Error" in blob_url:
+            return jsonify({'error': f"Failed to upload signed document: {blob_url}"}), 500
+
+        return jsonify({
+            'message': 'Document certified successfully.',
+            'download_url': blob_url,
+            'signed_file_path': signed_file_path  # Include for email purposes
+        })
+
+    return jsonify({'error': 'Invalid file type'}), 400
+
+@app.route('/email', methods=['POST'])
+def email_file():
+    email_address = request.form.get('email')
+    signed_file_path = request.form.get('signed_file_path')
+    
+    if not email_address or not file_path:
+        return jsonify({"error": "Email and file path are required"}), 400
+    
+    try:
+        msg = Message("Your Certified Document", recipients=[email_address])
+        msg.body = "Please find your certified document attached."
+
+        # Attach the signed document
+        with open(signed_file_path, "rb") as fp:
+            msg.attach(os.path.basename(signed_file_path), "application/pdf", fp.read())
+
+        mail.send(msg)
+        return jsonify({"message": "Email sent successfully!"})
+    except Exception as e:
+        return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
+
+# Initialize the database
+    with app.app_context():
+        db.create_all()
+
+# Main entry point
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)

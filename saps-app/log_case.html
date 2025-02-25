@@ -1,0 +1,23 @@
+<form action="/log-case" method="POST" enctype="multipart/form-data">
+    <label for="customer_id">Customer:</label>
+    <select name="customer_id" id="customer_id">
+        <!-- Populate with customer data -->
+    </select>
+
+    <label for="description">Description:</label>
+    <textarea name="description" id="description"></textarea>
+
+    <label for="crime_type">Type of Crime:</label>
+    <input type="text" name="crime_type" id="crime_type">
+
+    <label for="is_live">Is Crime Live/In Progress:</label>
+    <input type="checkbox" name="is_live" id="is_live">
+
+    <label for="voice_note">Upload Voice Note:</label>
+    <input type="file" name="voice_note" id="voice_note">
+
+    <label for="picture">Upload Picture:</label>
+    <input type="file" name="picture" id="picture">
+
+    <button type="submit">Submit Case</button>
+</form>

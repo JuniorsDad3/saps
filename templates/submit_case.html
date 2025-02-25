@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submit a Case | SAPS Digital Services</title>
+  <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css" />
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .header {
+      background-color: #004ba0;
+      color: white;
+      padding: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header img {
+      height: 60px;
+    }
+    .header h1 {
+      flex-grow: 1;
+      text-align: center;
+      margin: 0;
+    }
+    .container {
+      margin-top: 20px;
+    }
+    .submit-case-container {
+      max-width: 700px;
+      margin: auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-control {
+      width: 100%;
+    }
+    #map {
+      height: 200px;
+      width: 100%;
+      margin-bottom: 20px;
+    }
+    .footer {
+      background-color: #004ba0;
+      color: white;
+      text-align: center;
+      padding: 10px 0;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <img src="{{ url_for('static', filename='favicon.png') }}" alt="Logo" class="left-img">
+    <h1>SAPS Digital Services</h1>
+    <img src="{{ url_for('static', filename='favicon.png') }}" alt="Logo" class="right-img">
+  </div>
+
+  <div class="container">
+    <div class="submit-case-container">
+      <!-- Flash messages -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="alert alert-info">
+            {% for category, message in messages %}
+              <p>{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      
+      <h2 class="text-center">Log a Case</h2>
+      <form id="caseForm" action="{{ url_for('submit_case') }}" method="POST" enctype="multipart/form-data">
+        <!-- Personal Details -->
+        <div class="form-group">
+          <label for="name" class="form-label">Name</label>
+          <input type="text" class="form-control" id="name" name="name" required>
+        </div>
+        <div class="form-group">
+          <label for="surname" class="form-label">Surname</label>
+          <input type="text" class="form-control" id="surname" name="surname" required>
+        </div>
+        <div class="form-group">
+          <label for="idNumber" class="form-label">ID Number</label>
+          <input type="text" class="form-control" id="idNumber" name="idNumber" maxlength="13" required>
+        </div>
+        <div class="form-group">
+          <label for="cellNumber" class="form-label">Cell Number</label>
+          <input type="text" class="form-control" id="cellNumber" name="cellNumber" maxlength="10" required>
+        </div>
+        <div class="form-group">
+          <label for="email" class="form-label">Email</label>
+          <input type="email" class="form-control" id="email" name="email" required>
+        </div>
+        
+        <!-- Address Details -->
+        <div class="form-group">
+          <label for="streetNumber" class="form-label">Street Number</label>
+          <input type="text" class="form-control" id="streetNumber" name="streetNumber" required>
+        </div>
+        <div class="form-group">
+          <label for="streetName" class="form-label">Street Name</label>
+          <input type="text" class="form-control" id="streetName" name="streetName" required>
+        </div>
+        <div class="form-group">
+          <label for="suburb" class="form-label">Suburb</label>
+          <input type="text" class="form-control" id="suburb" name="suburb" required>
+        </div>
+        <div class="form-group">
+          <label for="province" class="form-label">Province</label>
+          <input type="text" class="form-control" id="province" name="province" required>
+        </div>
+        <div class="form-group">
+          <label for="postalCode" class="form-label">Postal Code</label>
+          <input type="text" class="form-control" id="postalCode" name="postalCode" required>
+        </div>
+
+        <!-- Incident Details -->
+        <div class="form-group">
+          <label for="incidentType" class="form-label">Type of Crime</label>
+          <select id="incidentType" class="form-control" name="incidentType" required>
+            <option value="">Select Crime Type</option>
+            <option value="theft">Theft</option>
+            <option value="burglary">Burglary</option>
+            <option value="assault">Assault</option>
+            <option value="fraud">Fraud</option>
+            <option value="hijacking">Hijacking</option>
+            <option value="robbery">Robbery</option>
+            <option value="sexual_offence">Sexual Offence</option>
+            <option value="gbv">Gender-Based Violence (GBV)</option>
+            <option value="cyber_crime">Cyber Crime</option>
+            <option value="drug_related">Drug-Related Crime</option>
+            <option value="murder">Murder</option>
+            <option value="kidnapping">Kidnapping</option>
+            <option value="arson">Arson</option>
+            <option value="vandalism">Vandalism</option>
+          </select>
+        </div>
+
+        <!-- Case Description and Audio Recording -->
+        <div class="form-group case-description">
+          <label for="caseDescription" class="form-label">Case Description (Max 1000 words)</label>
+          <textarea class="form-control" id="caseDescription" name="caseDescription" rows="5" maxlength="1000" required></textarea>
+          <div class="audio-recorder">
+            <button type="button" id="startRecord" class="btn btn-secondary">Start Recording</button>
+            <button type="button" id="stopRecord" class="btn btn-danger" disabled>Stop Recording</button>
+            <audio id="audioPreview" controls style="display: none; margin-top: 10px;"></audio>
+            <!-- Hidden input to store audio file data if needed -->
+            <input type="hidden" id="audioFile" name="audioFile">
+          </div>
+        </div>
+
+        <!-- Evidence Files Upload -->
+        <div class="form-group">
+          <label for="evidenceFiles" class="form-label">Upload Additional Evidence</label>
+          <input type="file" class="form-control" id="evidenceFiles" name="evidenceFiles" multiple accept=".png,.jpg,.jpeg,.mp4,.mp3,.wav" max-size="1048576000">
+          <small class="form-text text-muted">Max file size: 1GB each (Supports images, videos, and audio)</small>
+        </div>
+
+        <!-- Map Section to auto-populate address -->
+        <div id="map"></div>
+
+        <!-- Submit Button -->
+        <button type="submit" class="btn btn-primary">Submit Case</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>&copy; 2025 SAPS. All rights reserved.</p>
+  </div>
+
+  <!-- JavaScript Files -->
+  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+  <script>
+    // Register service worker for offline capabilities (optional)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js')
+        .then(() => console.log('Service Worker Registered'))
+        .catch(err => console.log('Service Worker Registration Failed: ', err));
+    }
+
+    // Initialize the map (using Leaflet)
+    var map = L.map('map').setView([-25.7313, 28.2184], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    var marker = L.marker([-25.7313, 28.2184]).addTo(map);
+
+    // Get user's current location and auto-populate address fields
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        map.setView([lat, lon], 13);
+        marker.setLatLng([lat, lon]);
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
+          .then(response => response.json())
+          .then(data => {
+            const address = data.display_name;
+            const parts = address.split(',');
+            document.getElementById('streetNumber').value = parts[0] ? parts[0].trim() : "";
+            document.getElementById('streetName').value = parts[1] ? parts[1].trim() : "";
+            document.getElementById('suburb').value = parts[2] ? parts[2].trim() : "";
+            document.getElementById('province').value = parts[3] ? parts[3].trim() : "";
+            document.getElementById('postalCode').value = parts[4] ? parts[4].trim() : "";
+          });
+      });
+    }
+
+    // Basic form validation for ID and Cell numbers
+    document.getElementById('caseForm').addEventListener('submit', function(e) {
+      const idNumber = document.getElementById('idNumber').value;
+      if (!/^\d{13}$/.test(idNumber)) {
+        alert('ID Number must be 13 digits');
+        e.preventDefault();
+        return;
+      }
+      const cellNumber = document.getElementById('cellNumber').value;
+      if (!/^\d{10}$/.test(cellNumber)) {
+        alert('Cell number must be 10 digits');
+        e.preventDefault();
+        return;
+      }
+    });
+
+    // Audio Recording functionality
+    let mediaRecorder;
+    let audioChunks = [];
+    document.getElementById('startRecord').addEventListener('click', async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.start();
+      document.getElementById('startRecord').disabled = true;
+      document.getElementById('stopRecord').disabled = false;
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        document.getElementById('audioPreview').src = audioUrl;
+        document.getElementById('audioPreview').style.display = 'block';
+        // Send audio for transcription (if needed)
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.wav');
+        const response = await fetch('/transcribe-audio', {
+          method: 'POST',
+          body: formData
+        });
+        const result = await response.json();
+        document.getElementById('caseDescription').value = result.transcription;
+      };
+    });
+    document.getElementById('stopRecord').addEventListener('click', () => {
+      mediaRecorder.stop();
+      document.getElementById('startRecord').disabled = false;
+      document.getElementById('stopRecord').disabled = true;
+    });
+
+    // Language Selector functionality
+    function changeLanguage() {
+      const selectedLanguage = document.getElementById('language').value;
+      console.log("Selected Language:", selectedLanguage);
+    }
+  </script>
+</body>
+</html>
