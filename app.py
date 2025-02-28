@@ -372,122 +372,117 @@ def set_language(lang):
 def submit_case():
     if request.method == 'POST':
         try:
-            # Capture Personal Details
-            first_name = request.form.get('name')
-            surname = request.form.get('surname')
-            id_number = request.form.get('idNumber')
-            cell_number = request.form.get('cellNumber')
-            email = request.form.get('email')
-
-            # Capture Address Details
-            street_number = request.form.get('streetNumber')
-            street_name = request.form.get('streetName')
-            suburb = request.form.get('suburb')
-            province = request.form.get('province')
-            postal_code = request.form.get('postalCode')
-
-            # Capture Incident Details
-            crime_type = request.form.get('incidentType')
-            description = request.form.get('caseDescription')
-
-            # Validate required fields
-            required_fields = [
-                first_name, surname, id_number, cell_number, email,
-                street_number, street_name, suburb, province, postal_code,
-                crime_type, description
-            ]
-            if not all(required_fields):
+            # Capture data from the form fields (matching your HTML input names)
+            form_data = {
+                'first_name': request.form.get('name'),
+                'surname': request.form.get('surname'),
+                'id_number': request.form.get('idNumber'),
+                'cell_number': request.form.get('cellNumber'),
+                'email': request.form.get('email'),
+                'street_number': request.form.get('streetNumber'),
+                'street_name': request.form.get('streetName'),
+                'suburb': request.form.get('suburb'),
+                'province': request.form.get('province'),
+                'postal_code': request.form.get('postalCode'),
+                'crime_type': request.form.get('incidentType'),
+                'description': request.form.get('caseDescription'),
+                'audio_file': request.files.get('audioFile'),
+                'evidence_files': request.files.getlist('evidenceFiles')
+            }
+            
+            # Validate required fields (adjust as needed)
+            required_fields = ['first_name', 'surname', 'id_number', 'cell_number', 'email',
+                               'street_number', 'street_name', 'suburb', 'province', 'postal_code',
+                               'crime_type', 'description']
+            if not all(form_data.get(field) for field in required_fields):
                 flash("Missing required fields", "error")
                 return render_template('submit_case.html'), 400
 
-            # Handle Audio Recording (if provided)
-            audio_file = request.files.get('audioFile')
+            # Process the audio file if provided
             voice_note_data = None
-            if audio_file and allowed_file(audio_file.filename):
-                # Option 1: Save to UPLOAD_FOLDER and store path, or Option 2: Read binary data
-                voice_note_data = audio_file.read()
+            if form_data['audio_file'] and allowed_file(form_data['audio_file'].filename):
+                # You can either save the file and store the path or store the binary data
+                voice_note_data = form_data['audio_file'].read()
 
-            # Handle Evidence Files Upload (optional processing)
-            evidence_files = request.files.getlist('evidenceFiles')
-            # (You could process evidence files here and store file paths or create Document records)
-
-            # Generate a unique reference number for the case
+            # Generate a unique case reference number
             case_number = generate_reference_number()
 
-            # Create new Case instance with captured data
+            # Create a new Case instance; update the model fields accordingly
             new_case = Case(
                 case_number=case_number,
-                first_name=first_name,
-                surname=surname,
-                id_number=id_number,
-                cell_number=cell_number,
-                email=email,
-                street_number=street_number,
-                street_name=street_name,
-                suburb=suburb,
-                province=province,
-                postal_code=postal_code,
-                crime_type=crime_type,
-                description=description,
+                first_name=form_data['first_name'],
+                surname=form_data['surname'],
+                id_number=form_data['id_number'],
+                cell_number=form_data['cell_number'],
+                email=form_data['email'],
+                street_number=form_data['street_number'],
+                street_name=form_data['street_name'],
+                suburb=form_data['suburb'],
+                province=form_data['province'],
+                postal_code=form_data['postal_code'],
+                crime_type=form_data['crime_type'],
+                description=form_data['description'],
                 submitted_at=datetime.datetime.utcnow(),
                 status="Open",
                 voice_note=voice_note_data
             )
-
             db.session.add(new_case)
             db.session.commit()
 
-            # Process and optionally save evidence files
-            for file in evidence_files:
+            # Process evidence files if provided
+            for file in form_data['evidence_files']:
                 if file and allowed_file(file.filename):
                     filename = secure_filename(file.filename)
                     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     file.save(file_path)
-                    # Optionally, create a Document record for each file
+                    # Optionally, create a Document or CertifiedDocument record here
+
+            # Optionally, send a confirmation email
+            send_confirmation_email(new_case)
 
             flash("Case submitted successfully!", "success")
-            return redirect(url_for('case_confirmation', ref=case_number))
+            return redirect(url_for('case_confirmation', ref=new_case.case_number))
         except Exception as e:
-            logging.error(f"Case submission error: {str(e)}")
+            logging.error(f"Case submission error: {e}")
             db.session.rollback()
-            flash("An error occurred while submitting the case.", "error")
+            flash("An error occurred while submitting your case.", "error")
             return render_template('500.html'), 500
 
     return render_template('submit_case.html')
 
 @app.route('/case_confirmation/<ref>')
 def case_confirmation(ref):
+    # Query the case using the unique case number (reference)
     case = Case.query.filter_by(case_number=ref).first_or_404()
     return render_template('case_confirmation.html', case=case)
 
+### Function to Send Confirmation Email ###
 def send_confirmation_email(case):
     try:
         msg = Message(
             subject="Case Submission Confirmation",
             sender=app.config['MAIL_USERNAME'],
-            recipients=[case.email]  # If your Case model should have an email attribute; otherwise, adjust accordingly
+            recipients=[case.email]  # Assumes the Case model stores the submitter's email
         )
-        msg.body = f"""Your case has been submitted successfully!
-        
-Case Reference: {case.case_number}
-Incident Type: {case.crime_type}
-Submitted At: {case.submitted_at.strftime('%Y-%m-%d %H:%M:%S')}
+        msg.body = f"""Dear {case.first_name} {case.surname},
 
-We will contact you regarding updates."""
+Your case has been submitted successfully!
+Reference Number: {case.case_number}
+
+Thank you for using SAPS Digital Services.
+"""
         mail.send(msg)
-        logging.info(f"Confirmation email sent to {case.email}")
     except Exception as e:
-        logging.error(f"Email error: {str(e)}")
+        logging.error(f"Error sending confirmation email: {e}")
 
 @app.route('/certification', methods=['GET', 'POST'])
 def certification():
-    print("Session Data:", session)  # Debugging: Check session content
-    if 'user_id' not in session:
+    # Ensure the user is logged in (adjust according to your authentication system)
+    if 'user_id' not in session or not current_user.is_authenticated:
         flash("Session expired, please log in again.", "warning")
-        return redirect(url_for('certification'))
-
-    if not current_user.is_authenticated:
+        return redirect(url_for('login'))
     
+    # Retrieve all certified documents (assuming a CertifiedDocument model exists)
     documents = CertifiedDocument.query.all()
 
     if request.method == 'POST':
@@ -501,15 +496,17 @@ def certification():
             return redirect(url_for('certification'))
 
         if file and allowed_file(file.filename):
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(file_path)
+            # certify_document() should be a function that applies your certification stamp/logo
             certified_file_path = certify_document(file_path, app.config['SIGNATURE_FILE'])
             if not certified_file_path:
                 flash("Failed to certify document.", "danger")
                 return redirect(url_for('certification'))
             return redirect(url_for('certification_download', filename=os.path.basename(certified_file_path)))
-    
-    return render_template('certification.html')
+
+    return render_template('certification.html', documents=documents)
 
 @app.route('/admin_dashboard', methods=['GET', 'POST'])
 @login_required
@@ -547,16 +544,11 @@ def page_not_found(e):
 def certification_download(filename):
     try:
         certified_file_path = os.path.join(app.config['DOWNLOAD_FOLDER'], filename)
-        
-        # Debugging statement to check the file path
-        print(f"Trying to send file: {certified_file_path}")
-
+        print(f"Attempting to send file: {certified_file_path}")
         if not os.path.exists(certified_file_path):
             flash("File not found.", "danger")
             return redirect(url_for('certification'))
-
         return send_file(certified_file_path, as_attachment=True)
-    
     except Exception as e:
         logging.error(f"Error downloading certified document: {e}")
         flash("An error occurred while downloading the file.", "danger")

@@ -13,8 +13,26 @@ class Case(db.Model):
     __tablename__ = 'cases'
     case_id = db.Column(db.Integer, primary_key=True)
     case_number = db.Column(db.String(50), unique=True, nullable=False)
-    description = db.Column(db.Text, nullable=True)
+    
+    # Personal Details
+    first_name = db.Column(db.String(100), nullable=False)
+    surname = db.Column(db.String(100), nullable=False)
+    id_number = db.Column(db.String(13), nullable=False)
+    cell_number = db.Column(db.String(10), nullable=False)
+    email = db.Column(db.String(100), nullable=False)
+    
+    # Address Details
+    street_number = db.Column(db.String(50), nullable=False)
+    street_name = db.Column(db.String(100), nullable=False)
+    suburb = db.Column(db.String(100), nullable=False)
+    province = db.Column(db.String(100), nullable=False)
+    postal_code = db.Column(db.String(20), nullable=False)
+    
+    # Incident Details
     crime_type = db.Column(db.String(100), nullable=True, default="Unknown")
+    description = db.Column(db.Text, nullable=True)
+    
+    # Additional Fields
     is_live = db.Column(db.Boolean, default=False, server_default="false")
     status = db.Column(db.String(50), nullable=False, default="Pending")
     submitted_at = db.Column(db.DateTime, default=db.func.current_timestamp())
