@@ -48,7 +48,7 @@ app = Flask(__name__)
 
 # App Configurations
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_DATABASE_URL'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['SIGNATURE_FILE'] = 'static/download.png'  # Update this to your stamp/logo image
@@ -372,42 +372,87 @@ def set_language(lang):
 def submit_case():
     if request.method == 'POST':
         try:
-            form_data = {
-                'incident_type': request.form.get('incidentType'),
-                'location': request.form.get('location'),
-                'description': request.form.get('description'),
-                'audio_file': request.files.get('audioFile'),
-                'evidence_files': request.files.getlist('evidenceFiles')
-            }
-            required_fields = ['incident_type', 'location', 'description']
-            if not all(form_data[key] for key in required_fields):
-                return jsonify({'error': 'Missing required fields'}), 400
+            # Capture Personal Details
+            first_name = request.form.get('name')
+            surname = request.form.get('surname')
+            id_number = request.form.get('idNumber')
+            cell_number = request.form.get('cellNumber')
+            email = request.form.get('email')
 
-            if form_data['audio_file'] and allowed_file(form_data['audio_file'].filename):
-                audio_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(form_data['audio_file'].filename))
-                form_data['audio_file'].save(audio_path)
+            # Capture Address Details
+            street_number = request.form.get('streetNumber')
+            street_name = request.form.get('streetName')
+            suburb = request.form.get('suburb')
+            province = request.form.get('province')
+            postal_code = request.form.get('postalCode')
 
-            case = Case(
-                case_number=generate_reference_number(),
-                description=form_data['description'],
-                crime_type=form_data['incident_type'],
+            # Capture Incident Details
+            crime_type = request.form.get('incidentType')
+            description = request.form.get('caseDescription')
+
+            # Validate required fields
+            required_fields = [
+                first_name, surname, id_number, cell_number, email,
+                street_number, street_name, suburb, province, postal_code,
+                crime_type, description
+            ]
+            if not all(required_fields):
+                flash("Missing required fields", "error")
+                return render_template('submit_case.html'), 400
+
+            # Handle Audio Recording (if provided)
+            audio_file = request.files.get('audioFile')
+            voice_note_data = None
+            if audio_file and allowed_file(audio_file.filename):
+                # Option 1: Save to UPLOAD_FOLDER and store path, or Option 2: Read binary data
+                voice_note_data = audio_file.read()
+
+            # Handle Evidence Files Upload (optional processing)
+            evidence_files = request.files.getlist('evidenceFiles')
+            # (You could process evidence files here and store file paths or create Document records)
+
+            # Generate a unique reference number for the case
+            case_number = generate_reference_number()
+
+            # Create new Case instance with captured data
+            new_case = Case(
+                case_number=case_number,
+                first_name=first_name,
+                surname=surname,
+                id_number=id_number,
+                cell_number=cell_number,
+                email=email,
+                street_number=street_number,
+                street_name=street_name,
+                suburb=suburb,
+                province=province,
+                postal_code=postal_code,
+                crime_type=crime_type,
+                description=description,
                 submitted_at=datetime.datetime.utcnow(),
-                status="Open"
+                status="Open",
+                voice_note=voice_note_data
             )
-            db.session.add(case)
+
+            db.session.add(new_case)
             db.session.commit()
 
-            for file in form_data['evidence_files']:
+            # Process and optionally save evidence files
+            for file in evidence_files:
                 if file and allowed_file(file.filename):
                     filename = secure_filename(file.filename)
                     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     file.save(file_path)
+                    # Optionally, create a Document record for each file
+
             flash("Case submitted successfully!", "success")
-            return redirect(url_for('case_confirmation', ref=case.case_number))
+            return redirect(url_for('case_confirmation', ref=case_number))
         except Exception as e:
             logging.error(f"Case submission error: {str(e)}")
             db.session.rollback()
+            flash("An error occurred while submitting the case.", "error")
             return render_template('500.html'), 500
+
     return render_template('submit_case.html')
 
 @app.route('/case_confirmation/<ref>')
