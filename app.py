@@ -48,7 +48,7 @@ app = Flask(__name__)
 
 # App Configurations
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['SIGNATURE_FILE'] = 'static/download.png'  # Update this to your stamp/logo image
@@ -440,6 +440,8 @@ def certification():
     if 'user_id' not in session:
         flash("Session expired, please log in again.", "warning")
         return redirect(url_for('certification'))
+
+    if not current_user.is_authenticated:
     
     documents = CertifiedDocument.query.all()
 
