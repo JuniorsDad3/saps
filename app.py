@@ -40,6 +40,7 @@ import pyodbc
 import hashlib
 import shutil
 
+
 # Load environment variables
 load_dotenv()
 
@@ -48,7 +49,7 @@ app = Flask(__name__)
 
 # App Configurations
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-app.config['SQLALCHEMY_DATABASE_URL'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['SIGNATURE_FILE'] = 'static/download.png'  # Update this to your stamp/logo image
