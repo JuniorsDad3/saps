@@ -95,6 +95,7 @@ logging.basicConfig(level=logging.INFO)
 login_manager = LoginManager()
 login_manager.init_app(app)  # Bind LoginManager to your app
 login_manager.login_view = "login"  # Define the login route
+PORT = int(os.environ.get("PORT", 30000))
 
 # Mail configuration
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -602,4 +603,4 @@ if __name__ == "__main__":
         else:
             print("Default user already exists!")
     app.run(debug=True)
-    app.run(host="0.0.0.0", port=30000)
+    app.run(host="0.0.0.0", port=PORT, debug=False)
