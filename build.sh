@@ -28,4 +28,4 @@ echo "Listing contents of /opt/microsoft/msodbcsql18/lib64:"
 ls -l /opt/microsoft/msodbcsql18/lib64 || echo "Directory not found"
 
 echo "Starting Gunicorn..."
-gunicorn app:app --bind 0.0.0.0:30000
+gunicorn app:app --bind 0.0.0.0:$PORT

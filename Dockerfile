@@ -38,4 +38,6 @@ COPY . /app/
 EXPOSE 30000
 
 # Start the application with Gunicorn
-CMD exec gunicorn app:app --bind 0.0.0.0:30000 --workers=1 --threads=2 --timeout 120
+CMD exec gunicorn app:app --bind 0.0.0.0:$PORT --workers=1 --threads=1 --timeout 300
+
+
