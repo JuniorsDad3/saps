@@ -605,4 +605,4 @@ if __name__ == "__main__":
             print("Default user already exists!")
     gc.collect()
 
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
