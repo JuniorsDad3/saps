@@ -97,7 +97,6 @@ login_manager.init_app(app)  # Bind LoginManager to your app
 login_manager.login_view = "login"  # Define the login route
 logging.basicConfig(level=logging.WARNING) 
 port = int(os.environ.get("PORT", 30000))
-print(f"Starting app on port {PORT}")
 
 # Mail configuration
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
