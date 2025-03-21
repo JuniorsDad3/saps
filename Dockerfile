@@ -27,14 +27,17 @@ ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/odbc/:$LD_LIBRARY_PATH
 # Set working directory
 WORKDIR /app
 
-# Copy and install Python dependencies
+# Copy only requirements first to leverage Docker cache
 COPY requirements.txt /app/
-RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy application code
+# Install dependencies
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application code
 COPY . /app/
 
-EXPOSE 10000
-CMD exec gunicorn app:app --bind 0.0.0.0:10000 --workers=1 --threads=1 --timeout=60
+# Expose the correct port for Render
+EXPOSE $PORT
 
-
+# Set the entry point
+CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers=1", "--worker-class=gevent", "--timeout=60", "app:app"]
