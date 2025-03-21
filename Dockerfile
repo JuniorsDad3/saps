@@ -31,13 +31,13 @@ WORKDIR /app
 COPY requirements.txt /app/
 
 # Install dependencies
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Copy the rest of the application code
 COPY . /app/
 
 # Expose the correct port for Render
-EXPOSE $PORT
+EXPOSE 10000
 
-# Set the entry point
-CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers=1", "--worker-class=gevent", "--timeout=60", "app:app"]
+# ✅ Fix: Remove "exec" and explicitly specify gunicorn
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000", "--workers=1", "--worker-class=gevent", "--timeout=60"]
