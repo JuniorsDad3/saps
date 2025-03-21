@@ -95,9 +95,11 @@
 
     <div class="container my-5">
         <h1 class="text-center">Case Submission Successful</h1>
-        <p class="text-center">Your case reference number is: {{ case_reference }}</p>
-        <p class="text-center">You will receive a confirmation email shortly.</p>
-        <a href="{{ url_for('index') }}" class="btn btn-primary btn-block">Back to Home</a>
+        <p>Dear {{ case.first_name }} {{ case.surname }},</p>
+        <p>Your case has been successfully submitted!</p>
+        <p><strong>Reference Number:</strong> {{ case.case_number }}</p>
+        <p>Thank you for using SAPS Digital Services.</p>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn">Go to Home</a>
     </div>
 
     <div class="footer">

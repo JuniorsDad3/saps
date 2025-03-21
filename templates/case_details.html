@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+    <title>Case Details | SAPS Digital Services</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <style>
+        :root {
+            --case-status-open: #dc3545;
+            --case-status-inprogress: #ffc107;
+            --case-status-resolved: #28a745;
+        }
+        
+        .evidence-thumbnail {
+            width: 150px;
+            height: 150px;
+            object-fit: cover;
+            border: 2px solid var(--primary-blue);
+            border-radius: 0.5rem;
+            transition: transform 0.2s;
+        }
+        
+        .evidence-thumbnail:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <header class="header bg-primary text-white py-3" role="banner">
+        <div class="container d-flex align-items-center">
+            <img src="{{ url_for('static', filename='saps-logo.png') }}" 
+                 alt="SAPS Logo" 
+                 class="d-none d-md-block"
+                 loading="lazy"
+                 width="120">
+            <h1 class="flex-grow-1 text-center mb-0 h4">Case Management System</h1>
+        </div>
+    </header>
+
+    <main id="main-content" class="container py-5" role="main">
+        <div class="card shadow-lg">
+            <div class="card-header bg-primary text-white">
+                <h2 class="h4 mb-0">Case #{{ case.case_number }}</h2>
+            </div>
+            
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <section aria-labelledby="case-overview">
+                            <h3 id="case-overview" class="h5 text-primary mb-3">Case Overview</h3>
+                            <dl class="row">
+                                <dt class="col-sm-4">Status</dt>
+                                <dd class="col-sm-8">
+                                    <span class="badge 
+                                        {% if case.status == 'Open' %}bg-danger
+                                        {% elif case.status == 'In Progress' %}bg-warning
+                                        {% else %}bg-success{% endif %}">
+                                        {{ case.status }}
+                                    </span>
+                                </dd>
+                                
+                                <dt class="col-sm-4">Reported Date</dt>
+                                <dd class="col-sm-8">{{ case.submitted_at }}</dd>
+                                
+                                <dt class="col-sm-4">Incident Type</dt>
+                                <dd class="col-sm-8">{{ case.incident_type|replace('_',' ')|title }}</dd>
+                            </dl>
+                        </section>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <section aria-labelledby="complainant-info">
+                            <h3 id="complainant-info" class="h5 text-primary mb-3">Complainant Information</h3>
+                            <dl class="row">
+                                <dt class="col-sm-4">Name</dt>
+                                <dd class="col-sm-8">{{ case.first_name }} {{ case.surname }}</dd>
+                                
+                                <dt class="col-sm-4">Contact</dt>
+                                <dd class="col-sm-8">{{ case.cell_number }}</dd>
+                                
+                                <dt class="col-sm-4">Email</dt>
+                                <dd class="col-sm-8">{{ case.email }}</dd>
+                            </dl>
+                        </section>
+                    </div>
+                </div>
+
+                <section aria-labelledby="case-description" class="mt-4">
+                    <h3 id="case-description" class="h5 text-primary">Case Description</h3>
+                    <div class="alert alert-light border">
+                        {{ case.description }}
+                    </div>
+                </section>
+
+                <section aria-labelledby="case-evidence" class="mt-5">
+                    <h3 id="case-evidence" class="h5 text-primary mb-3">Case Evidence</h3>
+                    <div class="row g-3">
+                        {% if case.picture %}
+                        <div class="col-auto">
+                            <figure class="evidence-thumbnail-container">
+                                <img src="{{ url_for('static', filename='uploads/' + case.picture) }}" 
+                                     alt="Case evidence photo" 
+                                     class="evidence-thumbnail"
+                                     loading="lazy"
+                                     data-bs-toggle="modal" 
+                                     data-bs-target="#imageModal">
+                                <figcaption class="visually-hidden">Primary case image</figcaption>
+                            </figure>
+                        </div>
+                        {% endif %}
+                        
+                        {% for doc in case.documents %}
+                        <div class="col-auto">
+                            <div class="card evidence-card">
+                                <div class="card-body text-center">
+                                    <span class="fs-1">📄</span>
+                                    <a href="{{ url_for('static', filename='uploads/' + doc.filename) }}" 
+                                       class="stretched-link" 
+                                       download
+                                       aria-label="Download {{ doc.filename }}"></a>
+                                    <p class="mb-0 small">{{ doc.filename }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+            </div>
+            
+            <div class="card-footer bg-light">
+                <a href="{{ url_for('admin_dashboard') }}" 
+                   class="btn btn-primary"
+                   role="button">
+                   ← Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <!-- Image Modal -->
+    <div class="modal fade" id="imageModal" tabindex="-1" aria-labelledby="imageModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="imageModalLabel">Case Evidence Photo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <img src="{{ url_for('static', filename='uploads/' + case.picture) }}" 
+                         class="img-fluid" 
+                         alt="Enlarged case evidence photo"
+                         loading="lazy">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer bg-primary text-white mt-5 py-3" role="contentinfo">
+        <div class="container text-center">
+            <p class="mb-0">&copy; 2025 South African Police Service. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>

@@ -25,7 +25,7 @@ from models import User, Case, Document, CertifiedDocument
 # Load environment variables
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
 
 # App Configurations
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')

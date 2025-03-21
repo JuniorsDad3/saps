@@ -40,4 +40,5 @@ COPY . /app/
 EXPOSE 10000
 
 # ✅ Fix: Remove "exec" and explicitly specify gunicorn
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000", "--workers=1", "--worker-class=gevent", "--timeout=60"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000", "--workers=1", "--timeout=60"]
+

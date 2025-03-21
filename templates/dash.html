@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard | SAPS Digital Services</title>
+  <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <style>
+    body { background-color: #f8f9fa; }
+    .header {
+      background-color: #004ba0;
+      color: white;
+      padding: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header img { height: 50px; }
+    .header h1 { flex-grow: 1; text-align: center; margin: 0; }
+    .navbar-custom { display: flex; align-items: center; }
+    .navbar-custom .nav-link { color: white; margin-right: 15px; }
+    .dashboard-container { margin: 20px auto; max-width: 95%; }
+    .card { margin-bottom: 20px; }
+    .quick-actions { display: flex; justify-content: space-between; margin-bottom: 20px; }
+    .quick-actions .btn { flex-grow: 1; margin: 5px; }
+    .charts-container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+    .charts-container canvas { max-width: 200px !important; max-height: 200px !important; }
+    .analytics-section { padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body>
+  <!-- Header with Navbar -->
+  <div class="header">
+    <img src="{{ url_for('static', filename='favicon.png') }}" alt="Logo">
+    <h1>SAPS Digital Services</h1>
+    <div class="navbar-custom">
+      <span class="live-clock" id="liveClock"></span>
+      <nav>
+        <a class="nav-link" href="{{ url_for('submit_case') }}">Submit a Case</a>
+        <a class="nav-link" href="{{ url_for('certification') }}">Certified Docs</a>
+        <a class="nav-link text-danger" href="{{ url_for('logout') }}">Logout</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container dashboard-container">
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="alert alert-info">
+          {% for category, message in messages %}
+            <p>{{ message }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Welcome Message -->
+    <h2>Welcome, {{ current_user.username }}</h2>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions">
+      <a href="{{ url_for('submit_case') }}" class="btn btn-primary">📄 Submit a Case</a>
+      <a href="{{ url_for('certification') }}" class="btn btn-success">📜 Certified Docs</a>
+    </div>
+
+    <!-- Certified Documents Table (Above Charts) -->
+    <h3>📄 Certified Documents</h3>
+    <table class="table table-bordered">
+      <thead>
+        <tr>
+          <th>Document ID</th>
+          <th>User Name</th>
+          <th>Document Type</th>
+          <th>Certification Date</th>
+          <th>Download</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in certified_documents %}
+        <tr>
+          <td>{{ doc.id }}</td>
+          <td>{{ doc.user_name }}</td>
+          <td>{{ doc.document_type }}</td>
+          <td>{{ doc.certification_date }}</td>
+          <td>
+            <a href="{{ url_for('certification_download', filename=doc.filename) }}" class="btn btn-sm btn-success" download>📥 Download</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Logged Cases Table (Above Charts) -->
+    <h3>📝 Logged Cases</h3>
+    <table class="table table-bordered">
+      <thead>
+        <tr>
+          <th>Case Ref #</th>
+          <th>Status</th>
+          <th>Date Logged</th>
+          <th>Image</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for case in cases %}
+        <tr>
+          <td>{{ case.case_number }}</td>
+          <td>{{ case.status }}</td>
+          <td>{{ case.submitted_at }}</td>
+          <td>
+            {% if case.picture %}
+              <img src="{{ get_image(case) }}" alt="Case Image" width="80">
+            {% else %}
+              No Image
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Analytics Section -->
+  <section class="analytics-section shadow">
+    <h2 class="h3 mb-4">Crime Analytics</h2>
+    <div class="charts-container">
+      <canvas id="crimeTypeChart"></canvas>
+      <canvas id="crimeTrendChart"></canvas>
+    </div>
+
+    <!-- Performance Summary -->
+    <div class="row text-center mt-4">
+      <div class="col-md-4">
+        <div class="card bg-primary text-white p-3">
+          <h4>Cases Resolved</h4>
+          <p class="display-6 fw-bold">87%</p>
+          <small>Within SLA Period</small>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card bg-success text-white p-3">
+          <h4>Public Trust</h4>
+          <p class="display-6 fw-bold">92%</p>
+          <small>Satisfaction Rate</small>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card bg-danger text-white p-3">
+          <h4>Active Cases</h4>
+          <p class="display-6 fw-bold">2,345</p>
+          <small>Currently Investigating</small>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <p>&copy; 2025 SAPS Digital Services</p>
+  </div>
+
+  <script>
+    // Live Clock
+    function updateClock() {
+      document.getElementById("liveClock").innerText = new Date().toLocaleString();
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Crime Charts with Smaller Size
+    new Chart(document.getElementById('crimeTypeChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Theft', 'Burglary', 'Assault', 'Fraud', 'GBV'],
+        datasets: [{
+          data: [12, 19, 3, 5, 2],
+          backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    new Chart(document.getElementById('crimeTrendChart'), {
+      type: 'line',
+      data: {
+        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+        datasets: [{
+          label: 'Crime Reports',
+          data: [15, 12, 18, 10, 14, 9],
+          backgroundColor: '#FF6384',
+          borderColor: '#FF6384',
+          fill: false
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  </script>
+
+  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
